@@ -1,0 +1,9 @@
+pure_pursuit_node:
+  ros__parameters:
+    max_lookahead_distance: 1.8
+    min_lookahead_distance: 0.4
+    max_velocity: 6.6
+    min_velocity: 0.5
+    csv_path: "/my_ws/src/pure_pursuit/path/sansibarstr_out.csv"
+    kp: 0.4
+    kd: 1.2
