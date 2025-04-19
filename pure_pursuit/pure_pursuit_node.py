@@ -20,9 +20,12 @@ class PurePursuit(Node):
         self.declare_parameter('min_lookahead_distance', 1.0)
         self.declare_parameter('max_velocity', 0.0)
         self.declare_parameter('min_velocity', 0.0)
+        self.declare_parameter('cmd_vel_topic', "/d")
+        self.declare_parameter('odometry_topic', "/o")
         self.declare_parameter('csv_path', '')
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
+        self.declare_parameter('is_clockwise', False)
 
         self.kp = self.get_parameter('kp').get_parameter_value().double_value
         self.kd = self.get_parameter('kd').get_parameter_value().double_value
@@ -31,17 +34,19 @@ class PurePursuit(Node):
         self.min_lad = self.get_parameter('min_lookahead_distance').get_parameter_value().double_value
         self.max_lad = self.get_parameter('max_lookahead_distance').get_parameter_value().double_value
         self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
+        self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
+        self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
+        self.is_clockwise = self.get_parameter('is_clockwise').get_parameter_value().bool_value
 
-        self.odom_sub = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
-        self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, '/drive', 10)
+        self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
+        self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_pub = self.create_publisher(Path, '/pp_path', 10)
         self.path = self.load_path_from_csv(self.csv_path)
-        # self.path.reverse()
+        if self.is_clockwise:
+            self.path.reverse()
         self.get_logger().info(f"Loaded {len(self.path)} points from {self.csv_path}")
-        # self.get_logger().info(f"{self.path}")
         self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, '/lookahead_circle', 10)
-        self.distance_lines_pub = self.create_publisher(MarkerArray, '/pp_distances', 10)
         self.prev_gamma = 0.0
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
@@ -96,7 +101,7 @@ class PurePursuit(Node):
         self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
-        # y = m*x + c
+        # lad = m*v + c
         m = (self.max_lad - self.min_lad)/(self.max_velocity - self.min_velocity)
         c = self.max_lad - m * self.max_velocity
         lad = m * v + c
@@ -142,7 +147,6 @@ class PurePursuit(Node):
             dx = self.path[i][0] - x
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
-            self.publish_distances_to_path_points(x, y, self.path[i], distance)
             if distance >= self.lookahead_distance:
                 return self.path[i]
 
@@ -235,29 +239,6 @@ class PurePursuit(Node):
             marker.points.append(p)
 
         self.lookahead_circle_pub.publish(marker)
-
-    def publish_distances_to_path_points(self, car_x, car_y, p_lookahead, distance):
-        marker_array = MarkerArray()
-        # Line marker
-        line_marker = Marker()
-        line_marker.header.frame_id = "map"
-        line_marker.header.stamp = self.get_clock().now().to_msg()
-        line_marker.ns = "dist_lines"
-        line_marker.id = int(distance)
-        line_marker.type = Marker.LINE_STRIP
-        line_marker.action = Marker.ADD
-        line_marker.scale.x = 0.01
-        line_marker.color.a = 0.8
-        line_marker.color.r = 0.0
-        line_marker.color.g = 0.5
-        line_marker.color.b = 1.0
-        p1 = Point(x=car_x, y=car_y, z=0.1)
-        p2 = Point(x=p_lookahead[0], y=p_lookahead[1], z=0.1)
-        line_marker.points = [p1, p2]
-        marker_array.markers.append(line_marker)
-
-        self.distance_lines_pub.publish(marker_array)
-
 
 def main(args=None):
     rclpy.init(args=args)
