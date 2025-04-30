@@ -11,6 +11,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from pynput import keyboard
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
+from sensor_msgs.msg import Joy
 
 class PurePursuit(Node):
     def __init__(self):
@@ -51,26 +52,19 @@ class PurePursuit(Node):
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
 
-        listener = keyboard.Listener(
-            on_press=self.on_press,
-            on_release=self.on_release
+        self.subscription = self.create_subscription(
+            Joy,
+            'joy',
+            self.joy_callback,
+            10
         )
-        listener.start()
-
-    def on_press(self, key):
-        try:
-            if key.char == 'a':
-                self.activate_autonomous_vel = True 
-        except AttributeError:
-            self.get_logger().warn("error while sending.. :(")
-
-    def on_release(self, key):
-        # Stop the robot when the key is released
-        # self.start_algorithm = False
-        self.activate_autonomous_vel = False
-        if key == keyboard.Key.esc:
-            # Stop listener
-            return False
+    
+    def joy_callback(self, msg:Joy):
+        if msg.buttons[4] == 1:
+            # self.vel_cmd.drive.speed = self.linear_velocity
+            self.activate_autonomous_vel = True
+        else:
+            self.activate_autonomous_vel = False
 
     def load_path_from_csv(self, csv_path):
         path = []

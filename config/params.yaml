@@ -1,11 +1,11 @@
 pure_pursuit_node:
   ros__parameters:
-    max_lookahead_distance: 2.2
+    max_lookahead_distance: 1.5
     min_lookahead_distance: 0.8
-    max_velocity: 5.6
+    max_velocity: 2.6
     min_velocity: 0.5
-    cmd_vel_topic: "/drive"
-    odometry_topic: "/ego_racecar/odom"
+    cmd_vel_topic: "/ackermann_cmd"
+    odometry_topic: "/odom"
     is_clockwise: False
     csv_path: "/my_ws/src/pure_pursuit/path/Montreal_map_out.csv"
     kp: 0.4
