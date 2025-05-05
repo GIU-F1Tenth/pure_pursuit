@@ -7,6 +7,6 @@ pure_pursuit_node:
     cmd_vel_topic: "/drive"
     odometry_topic: "/ego_racecar/odom"
     is_clockwise: False
-    csv_path: "/my_ws/src/pure_pursuit/path/Montreal_map_out.csv"
+    csv_path: "/my_ws/src/pure_pursuit/path/levine_map_out.csv"
     kp: 0.4
     kd: 1.2
