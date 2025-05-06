@@ -70,7 +70,7 @@ class PurePursuit(Node):
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.1, self.get_pose)  # 10 Hz
+        self.timer = self.create_timer(0.02, self.get_pose)  # 50 Hz
         
         self.path = self.load_path_from_csv(self.csv_path)
         if self.is_clockwise:
