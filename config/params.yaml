@@ -6,7 +6,7 @@ pure_pursuit_node:
     min_velocity: 0.7
     cmd_vel_topic: "/drive"
     odometry_topic: "/ego_racecar/odom"
-    is_clockwise: False
-    csv_path: "/my_ws/src/pure_pursuit/path/sansibarstr_out.csv"
+    is_antiClockwise: False
+    csv_path: "/my_ws/src/pure_pursuit/path/mansour_3_out.csv"
     kp: 0.4
     kd: 1.2

@@ -25,7 +25,7 @@ class PurePursuit(Node):
         self.declare_parameter('csv_path', '')
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
-        self.declare_parameter('is_clockwise', False)
+        self.declare_parameter('is_antiClockwise', False)
 
         self.kp = self.get_parameter('kp').get_parameter_value().double_value
         self.kd = self.get_parameter('kd').get_parameter_value().double_value
@@ -36,13 +36,13 @@ class PurePursuit(Node):
         self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
-        self.is_clockwise = self.get_parameter('is_clockwise').get_parameter_value().bool_value
+        self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_pub = self.create_publisher(Path, '/pp_path', 10)
         self.path = self.load_path_from_csv(self.csv_path)
-        if self.is_clockwise:
+        if self.is_antiClockwise:
             self.path.reverse()
         self.get_logger().info(f"Loaded {len(self.path)} points from {self.csv_path}")
         self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
@@ -145,8 +145,16 @@ class PurePursuit(Node):
             if distance >= self.lookahead_distance:
                 return self.path[i]
 
-        return None
+        # If no point was found, assume starting and reset closest idx
+        closest_idx = 0
+        for i in range(closest_idx, len(self.path)):
+            dx = self.path[i][0] - x
+            dy = self.path[i][1] - y
+            distance = math.sqrt(dx**2 + dy**2)
+            if distance >= self.lookahead_distance:
+                return self.path[i]
 
+        return None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         dx = point[0] - x
