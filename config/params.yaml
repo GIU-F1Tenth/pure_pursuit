@@ -2,11 +2,11 @@ pure_pursuit_node:
   ros__parameters:
     max_lookahead_distance: 2.2
     min_lookahead_distance: 0.8
-    max_velocity: 6.6
+    max_velocity: 7.6
     min_velocity: 0.7
     cmd_vel_topic: "/drive"
     odometry_topic: "/ego_racecar/odom"
-    is_antiClockwise: False
+    is_antiClockwise: True
     csv_path: "/my_ws/src/pure_pursuit/path/mansour_3_out.csv"
     kp: 0.4
     kd: 1.2

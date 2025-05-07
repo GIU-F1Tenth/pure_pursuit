@@ -77,8 +77,8 @@ class PurePursuit(Node):
         with open(csv_path, newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                x, y = float(row[0]), float(row[1])
-                path.append((x, y))
+                x, y, v = float(row[0]), float(row[1]), float(row[2])
+                path.append((x, y, v))
         return path
 
     def odom_callback(self, msg:Odometry):
@@ -87,12 +87,12 @@ class PurePursuit(Node):
         self.publish_lookahead_circle(x, y)
         yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
         self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        lookahead_point = self.find_lookahead_point(x, y)
+        lookahead_point, closest_point = self.find_lookahead_point(x, y)
         if lookahead_point is None:
             self.get_logger().warn("No lookahead point found")
             return
 
-        self.pursuit_the_point(lookahead_point, x, y, yaw)
+        self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
         self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
@@ -106,7 +106,7 @@ class PurePursuit(Node):
             lad = self.max_lad
         return lad
     
-    def pursuit_the_point(self, lookahead_point, x, y, yaw):
+    def pursuit_the_point(self, lookahead_point, x, y, yaw, closest_point):
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
         gamma = 2 * ly / (self.lookahead_distance ** 2)
@@ -117,7 +117,8 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
+            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
+            ackermann.drive.speed = closest_point[2] + 2
             self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
@@ -143,7 +144,7 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i]
+                return self.path[i], self.path[closest_idx]
 
         # If no point was found, assume starting and reset closest idx
         closest_idx = 0
@@ -152,9 +153,9 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i]
+                return self.path[i], self.path[closest_idx]
 
-        return None
+        return None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         dx = point[0] - x
