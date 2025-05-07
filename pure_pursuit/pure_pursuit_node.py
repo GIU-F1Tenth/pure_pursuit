@@ -93,11 +93,6 @@ class PurePursuit(Node):
             return
 
         self.pursuit_the_point(lookahead_point, x, y, yaw)
-
-        if lookahead_point is None:
-            self.get_logger().warn("No lookahead point found")
-            return
-
         self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
@@ -122,7 +117,7 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled(gamma)
+            ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
             self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
@@ -164,6 +159,12 @@ class PurePursuit(Node):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
+
+    def find_linear_vel_steering_controlled_rationally(self, gamma): # using the rational profile
+        k = 5.0  # Increase for steeper drop
+        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * gamma)
+        return max(self.min_velocity, min(self.max_velocity, vel))
+
 
     def find_linear_vel_steering_controlled(self, gamma):
         # vel = m*gamma + c
