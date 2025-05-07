@@ -161,8 +161,8 @@ class PurePursuit(Node):
         return math.atan2(siny_cosp, cosy_cosp)
 
     def find_linear_vel_steering_controlled_rationally(self, gamma): # using the rational profile
-        k = 5.0  # Increase for steeper drop
-        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * gamma)
+        k = 7.0  # Increase for steeper drop
+        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
         return max(self.min_velocity, min(self.max_velocity, vel))
 
 
