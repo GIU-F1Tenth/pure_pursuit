@@ -26,7 +26,7 @@ class PurePursuit(Node):
         self.declare_parameter('csv_path', '')
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
-        self.declare_parameter('is_clockwise', False)
+        self.declare_parameter('is_antiClockwise', False)
 
         self.kp = self.get_parameter('kp').get_parameter_value().double_value
         self.kd = self.get_parameter('kd').get_parameter_value().double_value
@@ -37,13 +37,13 @@ class PurePursuit(Node):
         self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
-        self.is_clockwise = self.get_parameter('is_clockwise').get_parameter_value().bool_value
+        self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_pub = self.create_publisher(Path, '/pp_path', 10)
         self.path = self.load_path_from_csv(self.csv_path)
-        if self.is_clockwise:
+        if self.is_antiClockwise:
             self.path.reverse()
         self.get_logger().info(f"Loaded {len(self.path)} points from {self.csv_path}")
         self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
@@ -71,8 +71,8 @@ class PurePursuit(Node):
         with open(csv_path, newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                x, y = float(row[0]), float(row[1])
-                path.append((x, y))
+                x, y, v = float(row[0]), float(row[1]), float(row[2])
+                path.append((x, y, v))
         return path
 
     def odom_callback(self, msg:Odometry):
@@ -81,17 +81,12 @@ class PurePursuit(Node):
         self.publish_lookahead_circle(x, y)
         yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
         self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        lookahead_point = self.find_lookahead_point(x, y)
+        lookahead_point, closest_point = self.find_lookahead_point(x, y)
         if lookahead_point is None:
             self.get_logger().warn("No lookahead point found")
             return
 
-        self.pursuit_the_point(lookahead_point, x, y, yaw)
-
-        if lookahead_point is None:
-            self.get_logger().warn("No lookahead point found")
-            return
-
+        self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
         self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
@@ -105,7 +100,7 @@ class PurePursuit(Node):
             lad = self.max_lad
         return lad
     
-    def pursuit_the_point(self, lookahead_point, x, y, yaw):
+    def pursuit_the_point(self, lookahead_point, x, y, yaw, closest_point):
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
         gamma = 2 * ly / (self.lookahead_distance ** 2)
@@ -116,7 +111,8 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled(gamma)
+            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
+            ackermann.drive.speed = closest_point[2] + 2
             self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
@@ -142,10 +138,18 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i]
+                return self.path[i], self.path[closest_idx]
 
-        return None
+        # If no point was found, assume starting and reset closest idx
+        closest_idx = 0
+        for i in range(closest_idx, len(self.path)):
+            dx = self.path[i][0] - x
+            dy = self.path[i][1] - y
+            distance = math.sqrt(dx**2 + dy**2)
+            if distance >= self.lookahead_distance:
+                return self.path[i], self.path[closest_idx]
 
+        return None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         dx = point[0] - x
@@ -158,6 +162,12 @@ class PurePursuit(Node):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
+
+    def find_linear_vel_steering_controlled_rationally(self, gamma): # using the rational profile
+        k = 7.0  # Increase for steeper drop
+        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
+        return max(self.min_velocity, min(self.max_velocity, vel))
+
 
     def find_linear_vel_steering_controlled(self, gamma):
         # vel = m*gamma + c
