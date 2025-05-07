@@ -8,5 +8,5 @@ pure_pursuit_node:
     odometry_topic: "/odom"
     is_clockwise: False
     csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/mansour_3_out.csv"
-    kp: 0.7
+    kp: 0.4
     kd: 1.2

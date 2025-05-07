@@ -114,14 +114,16 @@ class PurePursuit(Node):
             self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
             lookahead_point = self.find_lookahead_point(x, y)
             if lookahead_point is None:
-                self.get_logger().warn("No lookahead point found")
-                return
+                self.get_logger().warn("No lookahead point found go ")
+                lookahead_point = self.path[5]
+                # return
 
             self.pursuit_the_point(lookahead_point, x, y, yaw)
 
             if lookahead_point is None:
-                self.get_logger().warn("No lookahead point found")
-                return
+                self.get_logger().warn("No lookahead point found go to")
+                lookahead_point = self.path[5]
+                # return
 
             self.publish_lookahead_marker(lookahead_point)
 
