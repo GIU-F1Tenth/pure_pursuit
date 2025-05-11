@@ -11,6 +11,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from pynput import keyboard
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
+import numpy as np
 
 class PurePursuit(Node):
     def __init__(self):
@@ -117,8 +118,8 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
-            ackermann.drive.speed = closest_point[2] + 2
+            ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+            # ackermann.drive.speed = closest_point[2] + 2
             self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
@@ -174,6 +175,15 @@ class PurePursuit(Node):
         vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
         return max(self.min_velocity, min(self.max_velocity, vel))
 
+    def compute_c(self, v_min, v_max, k):
+        return  -1*(1 / k) * np.log((v_max - v_max*0.999) / (v_max*0.999 - v_min))
+    
+    def find_linear_vel_steering_controlled_sigmoidally(self, gamma): # Sigmoid formula
+        k = 10
+        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)))))
+          # Clamp velocity to safety bounds
+        vel = max(self.min_velocity, min(self.max_velocity, vel))
+        return vel
 
     def find_linear_vel_steering_controlled(self, gamma):
         # vel = m*gamma + c
