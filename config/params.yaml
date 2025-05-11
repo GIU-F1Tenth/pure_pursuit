@@ -8,5 +8,5 @@ pure_pursuit_node:
     odometry_topic: "/ego_racecar/odom"
     is_antiClockwise: True
     csv_path: "/my_ws/src/pure_pursuit/path/mansour_3_out.csv"
-    kp: 0.4
+    kp: 0.45
     kd: 1.2
