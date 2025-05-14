@@ -2,11 +2,11 @@ pure_pursuit_node:
   ros__parameters:
     max_lookahead_distance: 1.5
     min_lookahead_distance: 0.9
-    max_velocity: 4.05
-    min_velocity: 1.7
+    max_velocity: 5.2
+    min_velocity: 2.8
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
     is_antiClockwise: False
     csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/mansour_4_out.csv"
     kp: 0.4
-    kd: 1.2
+    kd: 1.45

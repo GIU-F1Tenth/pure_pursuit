@@ -70,7 +70,7 @@ class PurePursuit(Node):
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.02, self.get_pose)  # 50 Hz
+        self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
         
         self.path = self.load_path_from_csv(self.csv_path)
         if self.is_antiClockwise:
@@ -115,9 +115,7 @@ class PurePursuit(Node):
             lookahead_point, closest_point = self.find_lookahead_point(x, y)
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
-                lookahead_point = self.path[5]
-                # return
-
+        
             self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
             self.publish_lookahead_marker(lookahead_point)
 
@@ -147,12 +145,12 @@ class PurePursuit(Node):
         # self.publish_lookahead_circle(x, y)
         # yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
         # self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        # lookahead_point = self.find_lookahead_point(x, y)
+        # lookahead_point = self.find_lookahead_point(x, y)[0]
         # if lookahead_point is None:
         #     self.get_logger().warn("No lookahead point found")
         #     return
 
-        # self.pursuit_the_point(lookahead_point, x, y, yaw)
+        # self.pursuit_the_point(lookahead_point, x, y, yaw, None)
 
         # if lookahead_point is None:
         #     self.get_logger().warn("No lookahead point found")
