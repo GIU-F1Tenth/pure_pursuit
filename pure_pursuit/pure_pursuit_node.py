@@ -238,8 +238,15 @@ class PurePursuit(Node):
         vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
         return max(self.min_velocity, min(self.max_velocity, vel))
 
-    def find_linear_vel_steering_controlled_sigmoidally(self, gamma):
-        return max(self.min_velocity, abs(self.max_velocity / (1 + math.exp(-gamma / 1.75))))
+    def compute_c(self, v_min, v_max, k):
+        return  -1*(1 / k) * np.log((v_max - v_max*0.999) / (v_max*0.999 - v_min))
+    
+    def find_linear_vel_steering_controlled_sigmoidally(self, gamma): # Sigmoid formula
+        k = 5 # increase this variable if you want to make the curve more steep
+        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)))))
+          # Clamp velocity to safety bounds
+        vel = max(self.min_velocity, min(self.max_velocity, vel))
+        return vel
 
     def find_linear_vel_steering_controlled(self, gamma):
         # vel = m*gamma + c
