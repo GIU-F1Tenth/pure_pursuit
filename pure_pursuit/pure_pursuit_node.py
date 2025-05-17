@@ -70,7 +70,7 @@ class PurePursuit(Node):
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.02, self.get_pose)  # 50 Hz
+        self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
         
         self.path = self.load_path_from_csv(self.csv_path)
         if self.is_antiClockwise:
@@ -114,9 +114,8 @@ class PurePursuit(Node):
             self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
             lookahead_point, closest_point = self.find_lookahead_point(x, y)
             if lookahead_point is None:
-                self.get_logger().warn("No lookahead point found")
-                return
-
+                self.get_logger().warn("No lookahead point found go ")
+        
             self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
             self.publish_lookahead_marker(lookahead_point)
 
@@ -146,12 +145,12 @@ class PurePursuit(Node):
         # self.publish_lookahead_circle(x, y)
         # yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
         # self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        # lookahead_point = self.find_lookahead_point(x, y)
+        # lookahead_point = self.find_lookahead_point(x, y)[0]
         # if lookahead_point is None:
         #     self.get_logger().warn("No lookahead point found")
         #     return
 
-        # self.pursuit_the_point(lookahead_point, x, y, yaw)
+        # self.pursuit_the_point(lookahead_point, x, y, yaw, None)
 
         # if lookahead_point is None:
         #     self.get_logger().warn("No lookahead point found")
@@ -182,8 +181,9 @@ class PurePursuit(Node):
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
             # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
-            ackermann.drive.speed = closest_point[2] + 2
-            self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
+            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+            ackermann.drive.speed = closest_point[2] / 1.1 # scale down the already caluculated vel from the optimizer
+            # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
         ackermann.drive.steering_angle = steering_angle
@@ -238,6 +238,15 @@ class PurePursuit(Node):
         vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
         return max(self.min_velocity, min(self.max_velocity, vel))
 
+    def compute_c(self, v_min, v_max, k):
+        return  -1*(1 / k) * np.log((v_max - v_max*0.999) / (v_max*0.999 - v_min))
+    
+    def find_linear_vel_steering_controlled_sigmoidally(self, gamma): # Sigmoid formula
+        k = 5 # increase this variable if you want to make the curve more steep
+        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)))))
+          # Clamp velocity to safety bounds
+        vel = max(self.min_velocity, min(self.max_velocity, vel))
+        return vel
 
     def find_linear_vel_steering_controlled(self, gamma):
         # vel = m*gamma + c
