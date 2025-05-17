@@ -181,8 +181,8 @@ class PurePursuit(Node):
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
             # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
-            # ackermann.drive.speed = abs(closest_point[2] - 0.2)
+            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+            ackermann.drive.speed = closest_point[2] / 1.1 # scale down the already caluculated vel from the optimizer
             # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
