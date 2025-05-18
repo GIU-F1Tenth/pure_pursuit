@@ -10,3 +10,4 @@ pure_pursuit_node:
     csv_path: "/my_ws/src/pure_pursuit/path/sansibarstr_out.csv"
     kp: 0.45
     kd: 1.2
+    k_sigmoid: 8.0
