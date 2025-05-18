@@ -10,3 +10,4 @@ pure_pursuit_node:
     csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/mansour_3_out.csv"
     kp: 0.4
     kd: 1.55
+    k_sigmoid: 8.0
