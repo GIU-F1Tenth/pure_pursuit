@@ -52,6 +52,7 @@ class PurePursuit(Node):
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
         self.declare_parameter('is_antiClockwise', False)
+        self.k_sigmoid_param = self.declare_parameter('self.k_sigmoid', 8.0)
 
         self.kp = self.get_parameter('kp').get_parameter_value().double_value
         self.kd = self.get_parameter('kd').get_parameter_value().double_value
@@ -63,6 +64,7 @@ class PurePursuit(Node):
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
         self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
+        self.k_sigmoid = self.k_sigmoid_param.get_parameter_value().double_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
@@ -242,7 +244,7 @@ class PurePursuit(Node):
         return  -1*(1 / k) * np.log((v_max - v_max*0.999) / (v_max*0.999 - v_min))
     
     def find_linear_vel_steering_controlled_sigmoidally(self, gamma): # Sigmoid formula
-        k = 5 # increase this variable if you want to make the curve more steep
+        k = self.k_sigmoid # increase this variable if you want to make the curve more steep
         vel = self.min_velocity + ((self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)))))
           # Clamp velocity to safety bounds
         vel = max(self.min_velocity, min(self.max_velocity, vel))
