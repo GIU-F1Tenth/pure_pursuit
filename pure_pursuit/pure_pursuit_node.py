@@ -23,7 +23,6 @@ class PurePursuit(Node):
         self.declare_parameter('min_velocity', 0.0)
         self.declare_parameter('cmd_vel_topic', "/d")
         self.declare_parameter('odometry_topic', "/o")
-        self.declare_parameter('csv_path', '')
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
         self.declare_parameter('is_antiClockwise', False)
@@ -35,7 +34,6 @@ class PurePursuit(Node):
         self.min_velocity = self.get_parameter('min_velocity').get_parameter_value().double_value
         self.min_lad = self.get_parameter('min_lookahead_distance').get_parameter_value().double_value
         self.max_lad = self.get_parameter('max_lookahead_distance').get_parameter_value().double_value
-        self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
         self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
@@ -43,11 +41,9 @@ class PurePursuit(Node):
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_pub = self.create_publisher(Path, '/pp_path', 10)
-        self.path = self.load_path_from_csv(self.csv_path)
-        if self.is_antiClockwise:
-            self.path.reverse()
-        self.get_logger().info(f"Loaded {len(self.path)} points from {self.csv_path}")
+        self.path_sub = self.create_subscription(Path, '/a_star/path', self.path_update_cb, 10)
+        self.path = [] # a tuple of (x, y)
+
         self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, '/lookahead_circle', 10)
         self.prev_gamma = 0.0
@@ -75,14 +71,11 @@ class PurePursuit(Node):
             # Stop listener
             return False
 
-    def load_path_from_csv(self, csv_path):
-        path = []
-        with open(csv_path, newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                x, y, v = float(row[0]), float(row[1]), float(row[2])
-                path.append((x, y, v))
-        return path
+    def path_update_cb(self, msg:Path):
+        self.path.clear() # to clear the path
+        for i in range(len(msg.poses)):
+            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y))
+        # self.get_logger().info(f"{self.path}")
 
     def odom_callback(self, msg:Odometry):
         x = msg.pose.pose.position.x
@@ -120,14 +113,12 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
-            ackermann.drive.speed = closest_point[2] / 1.3
+            ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
             self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
         else:
             ackermann.drive.speed = 0.0
         ackermann.drive.steering_angle = steering_angle
         self.cmd_vel_pub.publish(ackermann)
-        self.publish_path()
 
     def find_lookahead_point(self, x, y):
         closest_idx = 0
@@ -199,18 +190,6 @@ class PurePursuit(Node):
         if vel > self.max_velocity:
             vel = self.max_velocity
         return vel
-
-    def publish_path(self):
-        path_msg = Path()
-        path_msg.header.frame_id = 'map'
-        for point in self.path:
-            pose = PoseStamped()
-            pose.header.frame_id = 'map'
-            pose.pose.position.x = point[0]
-            pose.pose.position.y = point[1]
-            pose.pose.orientation.w = 1.0
-            path_msg.poses.append(pose)
-        self.path_pub.publish(path_msg)
 
     def publish_lookahead_marker(self, point):
         marker = Marker()
