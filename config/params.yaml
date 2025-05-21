@@ -4,8 +4,8 @@ pure_pursuit_node:
     min_lookahead_distance: 0.8
     max_velocity: 2.8
     min_velocity: 0.7
-    cmd_vel_topic: "/drive"
-    odometry_topic: "/ego_racecar/odom"
+    cmd_vel_topic: "/ackermann_cmd"
+    odometry_topic: "/odom"
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
