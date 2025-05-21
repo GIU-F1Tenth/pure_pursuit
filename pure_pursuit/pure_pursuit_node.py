@@ -64,11 +64,11 @@ class PurePursuit(Node):
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
         self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
         self.k_sigmoid = self.get_parameter('k_sigmoid').get_parameter_value().double_value
-        self.a_star_topic = self.get_parameter('a_star_path_topic').get_parameter_value().string_value
+        self.a_star_path_topic = self.get_parameter('a_star_path_topic').get_parameter_value().string_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_sub = self.create_subscription(Path, self.a_star_topic, self.path_update_cb, 10)
+        self.path_sub = self.create_subscription(Path, self.a_star_path_topic, self.path_update_cb, 10)
         self.path = [] # a tuple of (x, y)
 
         self.tf_buffer = Buffer()
