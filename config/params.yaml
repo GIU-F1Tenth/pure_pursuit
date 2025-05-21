@@ -1,11 +1,12 @@
 pure_pursuit_node:
   ros__parameters:
-    max_lookahead_distance: 1.3
-    min_lookahead_distance: 0.8
+    max_lookahead_distance: 1.5
+    min_lookahead_distance: 0.65
     max_velocity: 2.8
     min_velocity: 0.7
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
+    is_antiClockwise: False
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
