@@ -12,31 +12,7 @@ from sensor_msgs.msg import Joy
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 import numpy as np
-from tf2_ros import Buffer, TransformListener
-
-def euler_from_quaternion(quaternion):
-    """
-    Converts quaternion (w in last place) to euler roll, pitch, yaw
-    quaternion = [x, y, z, w]
-    Bellow should be replaced when porting for ROS 2 Python tf_conversions is done.
-    """
-    x = quaternion[0]
-    y = quaternion[1]
-    z = quaternion[2]
-    w = quaternion[3]
-
-    sinr_cosp = 2 * (w * x + y * z)
-    cosr_cosp = 1 - 2 * (x * x + y * y)
-    roll = np.arctan2(sinr_cosp, cosr_cosp)
-
-    sinp = 2 * (w * y - z * x)
-    pitch = np.arcsin(sinp)
-
-    siny_cosp = 2 * (w * z + x * y)
-    cosy_cosp = 1 - 2 * (y * y + z * z)
-    yaw = np.arctan2(siny_cosp, cosy_cosp)
-
-    return roll, pitch, yaw
+from pynput import keyboard
 
 class PurePursuit(Node):
     def __init__(self):
@@ -69,11 +45,7 @@ class PurePursuit(Node):
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(Path, self.path_topic, self.path_update_cb, 10)
-        self.path = [] # a tuple of (x, y)
-
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
+        self.path = [] # a tuple of (x, y, v) 
 
         self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, '/lookahead_circle', 10)
@@ -82,74 +54,49 @@ class PurePursuit(Node):
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
         
-        self.subscription = self.create_subscription(
-            Joy,
-            'joy',
-            self.joy_callback,
-            10
+        listener = keyboard.Listener(
+            on_press=self.on_press,
+            on_release=self.on_release
         )
-    
-    def joy_callback(self, msg:Joy):
-        if msg.buttons[4] == 1:
-            # self.vel_cmd.drive.speed = self.linear_velocity
-            self.activate_autonomous_vel = True
-        else:
-            self.activate_autonomous_vel = False
+        listener.start()
+
+    def on_press(self, key):
+        try:
+            if key.char == 'a':
+                self.activate_autonomous_vel = True 
+        except AttributeError:
+            self.get_logger().warn("error while sending.. :(")
+
+    def on_release(self, key):
+        # Stop the robot when the key is released
+        # self.start_algorithm = False
+        self.activate_autonomous_vel = False
+        if key == keyboard.Key.esc:
+            # Stop listener
+            return False
 
     def path_update_cb(self, msg:Path):
         self.path.clear() # to clear the path
         for i in range(len(msg.poses)):
-            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y))
+            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
         if self.is_antiClockwise:
             self.path.reverse()
-        # self.get_logger().info(f"{self.path}")
-
-    def get_pose(self):
-        try:
-            now = rclpy.time.Time()
-            transform = self.tf_buffer.lookup_transform(
-                'map',      # target_frame
-                'laser',    # source_frame (your base_frame)
-                now,
-                timeout=rclpy.duration.Duration(seconds=0.5)
-            )
-
-            trans = transform.transform.translation
-            rot = transform.transform.rotation
-
-            # Convert quaternion to yaw
-            orientation_list = [rot.x, rot.y, rot.z, rot.w]
-            _, _, yaw = euler_from_quaternion(orientation_list)
-
-            # self.get_logger().info(f"Robot Pose - x: {trans.x:.2f}, y: {trans.y:.2f}, yaw: {yaw:.2f}")
-            x, y = trans.x, trans.y
-            
-            self.publish_lookahead_circle(x, y)
-            self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
-            lookahead_point, closest_point = self.find_lookahead_point(x, y)
-            if lookahead_point is None:
-                self.get_logger().warn("No lookahead point found go ")
-        
-            self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
-            self.publish_lookahead_marker(lookahead_point)
-
-        except Exception as e:
-            self.get_logger().warn(f"Transform not available: {e}")
+        self.get_logger().info(f"path has been updated...")
 
     def odom_callback(self, msg:Odometry):
         self.odometry = msg
-        # x = msg.pose.pose.position.x
-        # y = msg.pose.pose.position.y
-        # self.publish_lookahead_circle(x, y)
-        # yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
-        # self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        # lookahead_point = self.find_lookahead_point(x, y)[0]
-        # if lookahead_point is None:
-        #     self.get_logger().warn("No lookahead point found")
-        #     return
+        x = msg.pose.pose.position.x
+        y = msg.pose.pose.position.y
+        self.publish_lookahead_circle(x, y)
+        yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
+        self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
+        lookahead_point, closest_point = self.find_lookahead_point(x, y)
+        if lookahead_point is None:
+            self.get_logger().warn("No lookahead point found")
+            return
 
-        # self.pursuit_the_point(lookahead_point, x, y, yaw, None)
-        # self.publish_lookahead_marker(lookahead_point)
+        self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
+        self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
         # lad = m*v + c
@@ -173,8 +120,12 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
-            self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
+            if closest_point[2] > 0.0: # that means the published path has velocity
+                ackermann.drive.speed = closest_point[2] # the velocity at this instance
+                self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
+            else:
+                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+                self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
         else:
             ackermann.drive.speed = 0.0
         ackermann.drive.steering_angle = steering_angle

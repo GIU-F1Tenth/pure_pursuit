@@ -19,6 +19,8 @@ class PathPublisher(Node):
         self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
         self.path_topic = self.get_parameter("path_topic").get_parameter_value().string_value
         self.path_publisher = self.create_publisher(Path, self.path_topic, 10)
+        self.path = self.load_path_from_csv(self.csv_path)
+        self.publish_path()
 
     def load_path_from_csv(self, csv_path):
         path = []
@@ -29,7 +31,18 @@ class PathPublisher(Node):
                 path.append((x, y, v))
         return path
  
-        
+    
+    def publish_path(self):
+        path_msg = Path()
+        path_msg.header.frame_id = 'map'
+        for point in self.path:
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.pose.position.x = point[0]
+            pose.pose.position.y = point[1]
+            pose.pose.orientation.w = point[2] # velocity
+            path_msg.poses.append(pose)
+            self.path_publisher.publish(path_msg)
 
 def main(args=None):
     rclpy.init(args=args)

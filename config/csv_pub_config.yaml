@@ -1,0 +1,4 @@
+csv_path_publisher_node:
+  ros__parameters:
+    path_topic: "/pp_path"
+    csv_path: "/my_ws/src/pure_pursuit/path/sansibarstr_out.csv"

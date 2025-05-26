@@ -25,7 +25,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'pure_pursuit_node = pure_pursuit.pure_pursuit_node:main'
+            'pure_pursuit_node = pure_pursuit.pure_pursuit_node:main',
+            "csv_pub_exe = pure_pursuit.csv_path_publisher:main"
         ],
     },
 )
