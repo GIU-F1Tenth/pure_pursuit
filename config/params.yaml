@@ -6,6 +6,7 @@ pure_pursuit_node:
     min_velocity: 0.7
     cmd_vel_topic: "/drive"
     odometry_topic: "/ego_racecar/odom"
+    path_topic: "/a_star/path"
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
