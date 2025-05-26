@@ -40,43 +40,43 @@ def euler_from_quaternion(quaternion):
 
 class PurePursuit(Node):
     def __init__(self):
-        super().__init__('pure_pursuit_node')
+        super().__init__("pure_pursuit_node")
 
-        self.declare_parameter('max_lookahead_distance', 1.0)
-        self.declare_parameter('min_lookahead_distance', 1.0)
-        self.declare_parameter('max_velocity', 0.0)
-        self.declare_parameter('min_velocity', 0.0)
-        self.declare_parameter('cmd_vel_topic', "/d")
-        self.declare_parameter('odometry_topic', "/o")
-        self.declare_parameter('kp', 0.0)
-        self.declare_parameter('kd', 0.0)
-        self.declare_parameter('is_antiClockwise', False)
-        self.declare_parameter('k_sigmoid', 8.0)
-        self.declare_parameter('path_topic')
+        self.declare_parameter("max_lookahead_distance", 1.0)
+        self.declare_parameter("min_lookahead_distance", 1.0)
+        self.declare_parameter("max_velocity", 0.0)
+        self.declare_parameter("min_velocity", 0.0)
+        self.declare_parameter("cmd_vel_topic", "/d")
+        self.declare_parameter("odometry_topic", "/o")
+        self.declare_parameter("kp", 0.0)
+        self.declare_parameter("kd", 0.0)
+        self.declare_parameter("is_antiClockwise", False)
+        self.declare_parameter("k_sigmoid", 8.0)
+        self.declare_parameter("path_topic", "")
 
-        self.kp = self.get_parameter('kp').get_parameter_value().double_value
-        self.kd = self.get_parameter('kd').get_parameter_value().double_value
-        self.max_velocity = self.get_parameter('max_velocity').get_parameter_value().double_value
-        self.min_velocity = self.get_parameter('min_velocity').get_parameter_value().double_value
-        self.min_lad = self.get_parameter('min_lookahead_distance').get_parameter_value().double_value
-        self.max_lad = self.get_parameter('max_lookahead_distance').get_parameter_value().double_value
-        self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
-        self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
-        self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
-        self.k_sigmoid = self.get_parameter('k_sigmoid').get_parameter_value().double_value
-        self.path_topic = self.get_parameter('path_topic').get_parameter_value().string_value
+        self.kp = self.get_parameter("kp").get_parameter_value().double_value
+        self.kd = self.get_parameter("kd").get_parameter_value().double_value
+        self.max_velocity = self.get_parameter("max_velocity").get_parameter_value().double_value
+        self.min_velocity = self.get_parameter("min_velocity").get_parameter_value().double_value
+        self.min_lad = self.get_parameter("min_lookahead_distance").get_parameter_value().double_value
+        self.max_lad = self.get_parameter("max_lookahead_distance").get_parameter_value().double_value
+        self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
+        self.odom_topic = self.get_parameter("odometry_topic").get_parameter_value().string_value
+        self.is_antiClockwise = self.get_parameter("is_antiClockwise").get_parameter_value().bool_value
+        self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
+        self.path_topic = self.get_parameter("path_topic").get_parameter_value().string_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(Path, self.path_topic, self.path_update_cb, 10)
-        self.path = [] # a tuple of (x, y)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
+        self.path = [] # a tuple of (x, y, v) 
 
-        self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
-        self.lookahead_circle_pub = self.create_publisher(Marker, '/lookahead_circle', 10)
+        self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
+        self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
         self.prev_gamma = 0.0
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
@@ -99,10 +99,10 @@ class PurePursuit(Node):
     def path_update_cb(self, msg:Path):
         self.path.clear() # to clear the path
         for i in range(len(msg.poses)):
-            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y))
+            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
         if self.is_antiClockwise:
             self.path.reverse()
-        # self.get_logger().info(f"{self.path}")
+        self.get_logger().info(f"path has been updated...")
 
     def get_pose(self):
         try:
@@ -173,8 +173,12 @@ class PurePursuit(Node):
         
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
-            ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
-            self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
+            if closest_point[2] > 0.0: # that means the published path has velocity
+                ackermann.drive.speed = closest_point[2] # the velocity at this instance
+                self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
+            else:
+                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+                self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
         else:
             ackermann.drive.speed = 0.0
         ackermann.drive.steering_angle = steering_angle
