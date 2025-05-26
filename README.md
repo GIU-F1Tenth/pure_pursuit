@@ -1,7 +1,3 @@
-Sure! Here's a `README.md` file for your ROS 2 Python Pure Pursuit node, focused **only on how to use it**, not how it works internally:
-
----
-
 # 🏎️ Pure Pursuit ROS 2 Node
 
 This is a **ROS 2 (Python)** implementation of the Pure Pursuit controller for Ackermann steering vehicles. It subscribes to a path and odometry topic and publishes steering and speed commands using `AckermannDriveStamped`. It also publishes visualization markers to RViz.
