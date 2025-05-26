@@ -27,7 +27,8 @@ class PurePursuit(Node):
         self.declare_parameter('kp', 0.0)
         self.declare_parameter('kd', 0.0)
         self.declare_parameter('is_antiClockwise', False)
-        self.k_sigmoid_param = self.declare_parameter('self.k_sigmoid', 8.0)
+        self.declare_parameter('k_sigmoid', 8.0)
+        self.declare_parameter('path_topic')
 
         self.kp = self.get_parameter('kp').get_parameter_value().double_value
         self.kd = self.get_parameter('kd').get_parameter_value().double_value
@@ -39,11 +40,12 @@ class PurePursuit(Node):
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
         self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
-        self.k_sigmoid = self.k_sigmoid_param.get_parameter_value().double_value
+        self.k_sigmoid = self.get_parameter('k_sigmoid').get_parameter_value().double_value
+        self.path_topic = self.get_parameter('path_topic').get_parameter_value().string_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_pub = self.create_publisher(Path, '/pp_path', 10)
+        self.path_pub = self.create_publisher(Path, self.path_topic, 10)
         self.path = self.load_path_from_csv(self.csv_path)
         if self.is_antiClockwise:
             self.path.reverse()
