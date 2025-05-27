@@ -6,7 +6,7 @@ pure_pursuit_node:
     min_velocity: 0.7
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
-    path_topic: "/a_star/path"
+    path_topic: "/pp_path"
     is_antiClockwise: False
     kp: 0.45
     kd: 1.2
