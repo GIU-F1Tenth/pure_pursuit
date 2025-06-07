@@ -7,7 +7,7 @@ pure_pursuit_node:
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
     path_topic: "/pp_path"
-    is_antiClockwise: False
+    is_antiClockwise: True
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
