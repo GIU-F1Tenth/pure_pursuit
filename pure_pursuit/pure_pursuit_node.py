@@ -8,7 +8,7 @@ import math
 import csv
 import os
 from ackermann_msgs.msg import AckermannDriveStamped
-from sensor_msgs.msg import Joy
+from pynput import keyboard
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 import numpy as np
@@ -82,19 +82,26 @@ class PurePursuit(Node):
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
         
-        self.subscription = self.create_subscription(
-            Joy,
-            'joy',
-            self.joy_callback,
-            10
+        listener = keyboard.Listener(
+            on_press=self.on_press,
+            on_release=self.on_release
         )
-    
-    def joy_callback(self, msg:Joy):
-        if msg.buttons[4] == 1:
-            # self.vel_cmd.drive.speed = self.linear_velocity
-            self.activate_autonomous_vel = True
-        else:
-            self.activate_autonomous_vel = False
+        listener.start()
+
+    def on_press(self, key):
+        try:
+            if key.char == 'a':
+                self.activate_autonomous_vel = True 
+        except AttributeError:
+            self.get_logger().warn("error while sending.. :(")
+
+    def on_release(self, key):
+        # Stop the robot when the key is released
+        # self.start_algorithm = False
+        self.activate_autonomous_vel = False
+        if key == keyboard.Key.esc:
+            # Stop listener
+            return False
 
     def path_update_cb(self, msg:Path):
         self.path.clear() # to clear the path
@@ -109,7 +116,7 @@ class PurePursuit(Node):
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
                 'map',      # target_frame
-                'laser',    # source_frame (your base_frame)
+                'ego_racecar/base_link',    # source_frame (your base_frame)
                 now,
                 timeout=rclpy.duration.Duration(seconds=0.5)
             )
@@ -126,16 +133,35 @@ class PurePursuit(Node):
             
             self.publish_lookahead_circle(x, y)
             self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
-            lookahead_point, closest_point = self.find_lookahead_point(x, y)
+            lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(x, y)
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
-        
-            self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
-            self.publish_lookahead_marker(lookahead_point)
+            else:
+                perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], lookahead_point)
+                self.get_logger().info(f"The perp distance is {perp_distance}")
+                self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
+                self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
+    def perp_distance_from_car_point_to_lookahead_vector(self, car_location, prev_lookahead_point, lookahead):
+        # lookahead is a head of the closest point so to find vector c --> l we do l - c
+        track_vector = np.array([(lookahead[0] - prev_lookahead_point[0]), (lookahead[1] - prev_lookahead_point[1])]) # <dx, dy>
+
+        # the car's location in the map frame
+        car_point_track_vector = np.array([(car_location[0] - prev_lookahead_point[0]), (car_location[1] - prev_lookahead_point[1])])
+
+        # computing the perp distance
+        cross = np.abs(track_vector[0] * car_point_track_vector[1] - track_vector[1] * car_point_track_vector[0])
+        mag_track_vector = np.linalg.norm(track_vector)
+        perp_distance = cross/mag_track_vector
+
+        if np.isnan(perp_distance):
+            return -99
+        
+        return perp_distance
+          
     def odom_callback(self, msg:Odometry):
         self.odometry = msg
         # x = msg.pose.pose.position.x
@@ -185,6 +211,11 @@ class PurePursuit(Node):
         self.cmd_vel_pub.publish(ackermann)
 
     def find_lookahead_point(self, x, y):
+        """
+        This function returns the lookahead distance and the closest point to the car.
+        Returns the index of the lookahead point as a third element.
+        """
+
         closest_idx = 0
         min_dist = float('inf')
         # First find the closest path point to the car
@@ -202,7 +233,7 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx]
+                return self.path[i], self.path[closest_idx], i
 
         # If no point was found, assume starting and reset closest idx
         closest_idx = 0
@@ -211,9 +242,9 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx]
+                return self.path[i], self.path[closest_idx], i
 
-        return None, None
+        return None, None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         dx = point[0] - x
