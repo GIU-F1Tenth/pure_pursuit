@@ -11,3 +11,4 @@ pure_pursuit_node:
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
+    skidding_velocity_thresh: 1.0

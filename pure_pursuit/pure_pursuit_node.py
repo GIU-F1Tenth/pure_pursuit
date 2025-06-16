@@ -53,6 +53,7 @@ class PurePursuit(Node):
         self.declare_parameter("is_antiClockwise", False)
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("path_topic", "")
+        self.declare_parameter("skidding_velocity_thresh", 0.0)
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -65,6 +66,7 @@ class PurePursuit(Node):
         self.is_antiClockwise = self.get_parameter("is_antiClockwise").get_parameter_value().bool_value
         self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
         self.path_topic = self.get_parameter("path_topic").get_parameter_value().string_value
+        self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
@@ -145,6 +147,13 @@ class PurePursuit(Node):
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
+    def smooth_vel(self, curr_vel, targer_vel) -> float:
+        vel = targer_vel
+        if (targer_vel - curr_vel) > self.skidding_velocity_thresh:
+            vel = self.skidding_velocity_thresh + curr_vel
+            self.get_logger().info("skidding control kicked !!!!!!")
+        return vel
+
     def perp_distance_from_car_point_to_lookahead_vector(self, car_location, prev_lookahead_point, lookahead):
         # lookahead is a head of the closest point so to find vector c --> l we do l - c
         track_vector = np.array([(lookahead[0] - prev_lookahead_point[0]), (lookahead[1] - prev_lookahead_point[1])]) # <dx, dy>
@@ -207,6 +216,8 @@ class PurePursuit(Node):
                 self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
         else:
             ackermann.drive.speed = 0.0
+        # smoothing the velocity to prevent skidding
+        ackermann.drive.speed = self.smooth_vel(self.odometry.twist.twist.linear.x, ackermann.drive.speed)
         ackermann.drive.steering_angle = steering_angle
         self.cmd_vel_pub.publish(ackermann)
 
