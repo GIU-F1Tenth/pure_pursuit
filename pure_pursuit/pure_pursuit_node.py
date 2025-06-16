@@ -131,9 +131,9 @@ class PurePursuit(Node):
             lookahead_point, closest_point = self.find_lookahead_point(x, y)
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
-        
-            self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
-            self.publish_lookahead_marker(lookahead_point)
+            else:
+                self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
+                self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
