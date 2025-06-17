@@ -139,20 +139,20 @@ class PurePursuit(Node):
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
             else:
-                # perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], lookahead_point)
-                # self.get_logger().info(f"The perp distance is {perp_distance}")
-                # while(perp_distance > self.lookahead_distance):
-                #     lookahead_index += 1
-                #     perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], self.path[lookahead_index])
-                #     self.get_logger().info(f"recalculating...")
-                    
-                # lookahead_point = self.path[lookahead_index]
-                self.dot_product_car_laser_car_lookahead(lookahead_point)
+                perp_distance = self.perp_distance_car_frame_lookahead_point(lookahead_point, x, y, yaw)
+                self.get_logger().info(f"the perp_distance is {perp_distance}")
+                if perp_distance >= self.lookahead_distance:
+                    lookahead_index += 5    
+                    lookahead_point = self.path[lookahead_index]
                 self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
                 self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
+
+    def perp_distance_car_frame_lookahead_point(self, lookahead, x, y, yaw):
+        lookahead_in_car_frame = self.transform_to_vehicle_frame(lookahead, x, y, yaw)
+        return -lookahead_in_car_frame[1] # multiply it by -ve because the positive y is to the left
 
     def smooth_vel(self, curr_vel, targer_vel) -> float:
         vel = targer_vel
@@ -160,50 +160,6 @@ class PurePursuit(Node):
             vel = self.skidding_velocity_thresh + curr_vel
             self.get_logger().info("skidding control kicked !!!!!!")
         return vel
-
-    def dot_product_car_laser_car_lookahead(self, lookahead_point):
-        try:
-            now = rclpy.time.Time()
-            transform_map_b_link = self.tf_buffer.lookup_transform(
-                'map',      # target_frame
-                'ego_racecar/base_link',    # source_frame 
-                now,
-                timeout=rclpy.duration.Duration(seconds=0.5)
-            )
-
-            transform_map_laser = self.tf_buffer.lookup_transform(
-                'map',      # target_frame
-                'ego_racecar/laser_model',    # source_frame 
-                now,
-                timeout=rclpy.duration.Duration(seconds=0.5)
-            )
- 
-            baselink_laser_vector = np.array([(transform_map_laser.transform.translation.x - transform_map_b_link.transform.translation.x), (transform_map_laser.transform.translation.y - transform_map_b_link.transform.translation.y)])
-            baselink_lookahead = np.array([(lookahead_point[0] - transform_map_b_link.transform.translation.x), (lookahead_point[1] - transform_map_b_link.transform.translation.y)])
-
-            dot_product = np.dot(baselink_laser_vector, baselink_lookahead)
-            self.get_logger().info(f"the dot product is {dot_product}")
-        
-
-        except Exception as e:
-            self.get_logger().warn(f"Transform not available: {e}")
-
-    def perp_distance_from_car_point_to_lookahead_vector(self, car_location, prev_lookahead_point, lookahead):
-        # lookahead is a head of the closest point so to find vector c --> l we do l - c
-        track_vector = np.array([(lookahead[0] - prev_lookahead_point[0]), (lookahead[1] - prev_lookahead_point[1])]) # <dx, dy>
-
-        # the car's location in the map frame
-        car_point_track_vector = np.array([(car_location[0] - prev_lookahead_point[0]), (car_location[1] - prev_lookahead_point[1])])
-
-        # computing the perp distance
-        cross = np.abs(track_vector[0] * car_point_track_vector[1] - track_vector[1] * car_point_track_vector[0])
-        mag_track_vector = np.linalg.norm(track_vector)
-        perp_distance = cross/mag_track_vector
-
-        if np.isnan(perp_distance):
-            return -99
-        
-        return perp_distance
           
     def odom_callback(self, msg:Odometry):
         self.odometry = msg
