@@ -139,8 +139,15 @@ class PurePursuit(Node):
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
             else:
-                perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], lookahead_point)
-                self.get_logger().info(f"The perp distance is {perp_distance}")
+                # perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], lookahead_point)
+                # self.get_logger().info(f"The perp distance is {perp_distance}")
+                # while(perp_distance > self.lookahead_distance):
+                #     lookahead_index += 1
+                #     perp_distance = self.perp_distance_from_car_point_to_lookahead_vector((x, y), self.path[lookahead_index-1], self.path[lookahead_index])
+                #     self.get_logger().info(f"recalculating...")
+                    
+                # lookahead_point = self.path[lookahead_index]
+                self.dot_product_car_laser_car_lookahead(lookahead_point)
                 self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
                 self.publish_lookahead_marker(lookahead_point)
 
@@ -153,6 +160,33 @@ class PurePursuit(Node):
             vel = self.skidding_velocity_thresh + curr_vel
             self.get_logger().info("skidding control kicked !!!!!!")
         return vel
+
+    def dot_product_car_laser_car_lookahead(self, lookahead_point):
+        try:
+            now = rclpy.time.Time()
+            transform_map_b_link = self.tf_buffer.lookup_transform(
+                'map',      # target_frame
+                'ego_racecar/base_link',    # source_frame 
+                now,
+                timeout=rclpy.duration.Duration(seconds=0.5)
+            )
+
+            transform_map_laser = self.tf_buffer.lookup_transform(
+                'map',      # target_frame
+                'ego_racecar/laser_model',    # source_frame 
+                now,
+                timeout=rclpy.duration.Duration(seconds=0.5)
+            )
+ 
+            baselink_laser_vector = np.array([(transform_map_laser.transform.translation.x - transform_map_b_link.transform.translation.x), (transform_map_laser.transform.translation.y - transform_map_b_link.transform.translation.y)])
+            baselink_lookahead = np.array([(lookahead_point[0] - transform_map_b_link.transform.translation.x), (lookahead_point[1] - transform_map_b_link.transform.translation.y)])
+
+            dot_product = np.dot(baselink_laser_vector, baselink_lookahead)
+            self.get_logger().info(f"the dot product is {dot_product}")
+        
+
+        except Exception as e:
+            self.get_logger().warn(f"Transform not available: {e}")
 
     def perp_distance_from_car_point_to_lookahead_vector(self, car_location, prev_lookahead_point, lookahead):
         # lookahead is a head of the closest point so to find vector c --> l we do l - c
