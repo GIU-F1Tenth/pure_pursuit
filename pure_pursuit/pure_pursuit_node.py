@@ -55,6 +55,8 @@ class PurePursuit(Node):
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("path_chooser_topic", "")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
+        self.declare_parameter("astar_path_topic")
+        self.declare_parameter("csv_path")
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -68,17 +70,22 @@ class PurePursuit(Node):
         self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
         self.path_chooser_topic = self.get_parameter("path_chooser_topic").get_parameter_value().string_value
         self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
+        self.astar_path_topic = self.get_parameter("astar_path_topic").get_parameter_value().string_value
+        self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
+        self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
         self.path = [] # a tuple of (x, y, v) 
-        self.csv_path = []
+        self.csv_race_path = []
         self.astar_path = []
+
+        self.csv_race_path = self.load_path_from_csv(self.csv_path)
 
         self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
@@ -108,9 +115,30 @@ class PurePursuit(Node):
             # Stop listener
             return False
 
+    def load_path_from_csv(self, csv_path):
+        path = []
+        with open(csv_path, newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                x, y, v = float(row[0]), float(row[1]), float(row[2])
+                path.append((x, y, v))
+        return path
+
+    def astar_path_cb(self, msg:Path):
+        self.astar_path.clear()
+        for i in range(len(msg.poses)):
+            self.astar_path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
+        if self.is_antiClockwise:
+            self.astar_path.reverse()
+        self.get_logger().info(f"astar path has been updated...")
+
+
     def path_update_cb(self, msg:String):
         if (msg.data == "astar_path"):
-            pass
+            self.path = self.astar_path
+        elif (msg.data == "csv_race_path"):
+            self.path = self.csv_race_path
+
         self.get_logger().info(f"path has been updated to {msg.data}")
 
     def get_pose(self):
