@@ -139,7 +139,7 @@ class PurePursuit(Node):
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
                 'map',      # target_frame
-                'ego_racecar/base_link',    # source_frame (your base_frame)
+                'base_link',    # source_frame (your base_frame)
                 now,
                 timeout=rclpy.duration.Duration(seconds=0.5)
             )

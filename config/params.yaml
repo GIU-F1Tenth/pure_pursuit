@@ -2,8 +2,8 @@ pure_pursuit_node:
   ros__parameters:
     max_lookahead_distance: 1.5
     min_lookahead_distance: 0.65
-    max_velocity: 2.8
-    min_velocity: 0.7
+    max_velocity: 4.3
+    min_velocity: 0.9
     cmd_vel_topic: "/tmp/ackermann_cmd"
     odometry_topic: "/odom"
     path_chooser_topic: "/path_chooser"
@@ -11,6 +11,6 @@ pure_pursuit_node:
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
-    skidding_velocity_thresh: 1.0
-    csv_path: ""
+    skidding_velocity_thresh: 0.4
+    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/cluj_napoca_berlin_out.csv"
     astar_path_topic: "/astar_pp_path"
