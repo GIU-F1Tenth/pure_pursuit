@@ -6,10 +6,12 @@ pure_pursuit_node:
     min_velocity: 0.9
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
-    path_topic: "/pp_path"
+    path_chooser_topic: "/path_chooser"
+    astar_path_topic: "/astar_pp_path"
     is_antiClockwise: False
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
     skidding_velocity_thresh: 0.4
     vel_division_factor: 1.0
+    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/cluj_napoca_berlin_out.csv"
