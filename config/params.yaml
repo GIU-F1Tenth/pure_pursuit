@@ -4,12 +4,13 @@ pure_pursuit_node:
     min_lookahead_distance: 0.65
     max_velocity: 2.8
     min_velocity: 0.7
-    cmd_vel_topic: "/drive"
-    odometry_topic: "/ego_racecar/odom"
+    cmd_vel_topic: "/tmp/ackermann_cmd"
+    odometry_topic: "/odom"
     path_chooser_topic: "/path_chooser"
     is_antiClockwise: False
     kp: 0.45
     kd: 1.2
     k_sigmoid: 8.0
     skidding_velocity_thresh: 1.0
-    csv_path: "/my_ws/src/pure_pursuit/path/cluj_napoca_berlin_out.csv"
+    csv_path: ""
+    astar_path_topic: "/astar_pp_path"

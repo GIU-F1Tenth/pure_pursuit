@@ -9,11 +9,11 @@ import math
 import csv
 import os
 from ackermann_msgs.msg import AckermannDriveStamped
-from pynput import keyboard
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 import numpy as np
 from tf2_ros import Buffer, TransformListener
+from sensor_msgs.msg import Joy
 
 def euler_from_quaternion(quaternion):
     """
@@ -55,8 +55,8 @@ class PurePursuit(Node):
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("path_chooser_topic", "")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
-        self.declare_parameter("astar_path_topic")
-        self.declare_parameter("csv_path")
+        self.declare_parameter("astar_path_topic", "")
+        self.declare_parameter("csv_path", "")
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -93,27 +93,20 @@ class PurePursuit(Node):
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
-        
-        listener = keyboard.Listener(
-            on_press=self.on_press,
-            on_release=self.on_release
+ 
+        self.subscription = self.create_subscription(
+            Joy,
+            'joy',
+            self.joy_callback,
+            10
         )
-        listener.start()
-
-    def on_press(self, key):
-        try:
-            if key.char == 'a':
-                self.activate_autonomous_vel = True 
-        except AttributeError:
-            self.get_logger().warn("error while sending.. :(")
-
-    def on_release(self, key):
-        # Stop the robot when the key is released
-        # self.start_algorithm = False
-        self.activate_autonomous_vel = False
-        if key == keyboard.Key.esc:
-            # Stop listener
-            return False
+    
+    def joy_callback(self, msg:Joy):
+        if msg.buttons[4] == 1:
+            # self.vel_cmd.drive.speed = self.linear_velocity
+            self.activate_autonomous_vel = True
+        else:
+            self.activate_autonomous_vel = False
 
     def load_path_from_csv(self, csv_path):
         path = []
