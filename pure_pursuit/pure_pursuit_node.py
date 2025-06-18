@@ -54,6 +54,7 @@ class PurePursuit(Node):
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("path_topic", "")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
+        self.declare_parameter("vel_division_factor", 2.0)
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -67,7 +68,8 @@ class PurePursuit(Node):
         self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
         self.path_topic = self.get_parameter("path_topic").get_parameter_value().string_value
         self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
-        
+        self.vel_division_factor = self.get_parameter("vel_division_factor").get_parameter_value().double_value
+
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(Path, self.path_topic, self.path_update_cb, 10)
@@ -184,7 +186,7 @@ class PurePursuit(Node):
         ackermann = AckermannDriveStamped()
         if self.activate_autonomous_vel:
             if closest_point[2] > 0.0: # that means the published path has velocity
-                ackermann.drive.speed = closest_point[2] # the velocity at this instance
+                ackermann.drive.speed = closest_point[2] / self.vel_division_factor # the velocity at this instance
                 self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
             else:
                 ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
