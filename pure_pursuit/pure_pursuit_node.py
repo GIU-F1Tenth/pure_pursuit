@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
 import math
 import csv
 import os
@@ -52,7 +53,7 @@ class PurePursuit(Node):
         self.declare_parameter("kd", 0.0)
         self.declare_parameter("is_antiClockwise", False)
         self.declare_parameter("k_sigmoid", 8.0)
-        self.declare_parameter("path_topic", "")
+        self.declare_parameter("path_chooser_topic", "")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -65,17 +66,19 @@ class PurePursuit(Node):
         self.odom_topic = self.get_parameter("odometry_topic").get_parameter_value().string_value
         self.is_antiClockwise = self.get_parameter("is_antiClockwise").get_parameter_value().bool_value
         self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
-        self.path_topic = self.get_parameter("path_topic").get_parameter_value().string_value
+        self.path_chooser_topic = self.get_parameter("path_chooser_topic").get_parameter_value().string_value
         self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_sub = self.create_subscription(Path, self.path_topic, self.path_update_cb, 10)
+        self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
         self.path = [] # a tuple of (x, y, v) 
+        self.csv_path = []
+        self.astar_path = []
 
         self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
@@ -105,13 +108,10 @@ class PurePursuit(Node):
             # Stop listener
             return False
 
-    def path_update_cb(self, msg:Path):
-        self.path.clear() # to clear the path
-        for i in range(len(msg.poses)):
-            self.path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
-        if self.is_antiClockwise:
-            self.path.reverse()
-        self.get_logger().info(f"path has been updated...")
+    def path_update_cb(self, msg:String):
+        if (msg.data == "astar_path"):
+            pass
+        self.get_logger().info(f"path has been updated to {msg.data}")
 
     def get_pose(self):
         try:

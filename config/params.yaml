@@ -6,7 +6,7 @@ pure_pursuit_node:
     min_velocity: 0.7
     cmd_vel_topic: "/drive"
     odometry_topic: "/ego_racecar/odom"
-    path_topic: "/pp_path"
+    path_chooser_topic: "/pp_path"
     is_antiClockwise: False
     kp: 0.45
     kd: 1.2
