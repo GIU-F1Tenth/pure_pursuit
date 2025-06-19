@@ -15,6 +15,8 @@ import numpy as np
 from tf2_ros import Buffer, TransformListener
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool
+from nav2_msgs.action import ComputePathToPose
+from rclpy.action import ActionClient
 
 def euler_from_quaternion(quaternion):
     """
@@ -60,6 +62,9 @@ class PurePursuit(Node):
         self.declare_parameter("astar_path_topic", "/astar_pp_path")
         self.declare_parameter("csv_path", "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/cluj_napoca_berlin_out.csv")
         self.declare_parameter("vel_division_factor", 1.0)
+        self.declare_parameter("astar_lookahead_distance", 3.5)
+        self.declare_parameter("astar_lookahead_marker_topic", "astar_lookahead_marker")
+        self.declare_parameter("object_detected_topic", "/tmp/obj_detected")
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -77,16 +82,25 @@ class PurePursuit(Node):
         self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
         self.is_solo = self.get_parameter("is_solo").get_parameter_value().bool_value
         self.vel_division_factor = self.get_parameter("vel_division_factor").get_parameter_value().double_value
+        self.astar_lookahead_distance = self.get_parameter("astar_lookahead_distance").get_parameter_value().double_value
+        self.astar_lookahead_marker_topic = self.get_parameter("astar_lookahead_marker_topic").get_parameter_value().string_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
         self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb, 10)
         self.gap_follower_toggle_sub = self.create_subscription(Bool, "/gap_follower_toggle", self.toggle_algo_cb, 10)
+        self.astar_lookahead_marker_pub = self.create_publisher(Marker, self.astar_lookahead_marker_topic, 10)
+        self.astar_lookahead_circle_pub = self.create_publisher(Marker, "/astar_lookahead_circle", 10)
+        self.astar_path_publisher = self.create_publisher(Path, "/tmp/astar_pp_path", 10)
+        # self.obj_detected_sub = self.create_subscription(Bool, self.obj_detected_topic, self.create_path, 10)
+        # self._action_client = ActionClient(self, ComputePathToPose, 'compute_path_to_pose')
+        self.goal_sent = False
+        self.marker = None
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.005, self.get_pose)  # 500 Hz
+        self.timer = self.create_timer(0.001, self.get_pose)  # 500 Hz
         self.csv_race_path = []
         self.astar_path = []
         
@@ -112,10 +126,7 @@ class PurePursuit(Node):
         )
         
     def toggle_algo_cb(self, msg:Bool):
-        if msg.data:
-            self.is_active = False
-        else:
-            self.is_active = True
+        self.is_active = not msg.data
     
     def joy_callback(self, msg:Joy):
         if msg.buttons[4] == 1:
@@ -141,6 +152,104 @@ class PurePursuit(Node):
             self.astar_path.reverse()
         self.get_logger().info(f"astar path has been updated...")
 
+    # def create_path(self, msg: Bool): 
+    #     if not msg.data or not self.marker:
+    #         return
+    #     marker = self.marker
+    #     goal_msg = ComputePathToPose.Goal()
+
+    #     # Create a PoseStamped message for the goal
+    #     goal_pose = PoseStamped()
+    #     goal_pose.header.frame_id = marker.header.frame_id
+    #     goal_pose.header.stamp = self.get_clock().now().to_msg()
+    #     goal_pose.pose = marker.pose
+
+    #     # Assign the goal pose
+    #     goal_msg.goal = goal_pose
+
+    #     # Wait for action server and send goal
+    #     self._action_client.wait_for_server()
+    #     self._send_goal_future = self._action_client.send_goal_async(goal_msg)
+    #     self._send_goal_future.add_done_callback(self.goal_response_callback)
+    #     self.goal_sent = True
+
+    # def goal_response_callback(self, future):
+    #     goal_handle = future.result()
+    #     if not goal_handle.accepted:
+    #         self.get_logger().warn('Goal was rejected by Nav2.')
+    #         self.goal_sent = False
+    #         return
+
+    #     self._get_result_future = goal_handle.get_result_async()
+    #     self._get_result_future.add_done_callback(self.get_result_callback)
+        
+    # def get_result_callback(self, future):
+    #     result = future.result().result
+            
+    #     if result.path: 
+    #         for pose_stamped in result.path.poses:
+    #             pose_stamped.pose.orientation.w = 0.0
+    #         # result.path.poses.reverse()
+    #         self.path_publisher.publish(result.path)
+    #     else:
+    #         self.get_logger().warn("No path returned in result")
+    #     self.goal_sent = False
+
+
+    def publish_astar_lookahead_marker(self, point):
+        marker = Marker()
+        marker.header.frame_id = 'map'  # or 'map' depending on your frame
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "astar_lookahead"
+        marker.id = 2
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose.position.x = point[0]
+        marker.pose.position.y = point[1]
+        marker.pose.position.z = 0.1  # Slightly above ground
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.3
+        marker.scale.y = 0.3
+        marker.scale.z = 0.3
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        self.astar_lookahead_marker_pub.publish(marker)
+        if self.goal_sent:
+            return
+        
+        self.marker = marker
+
+    def publish_astar_lookahead_circle(self, x, y):
+        marker = Marker()
+        marker.header.frame_id = 'map'  # or 'map' if you're using that
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "astar_lookahead"
+        marker.id = 3
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.03  # line thickness
+        marker.color.a = 1.0
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+
+        # Create circle points
+        resolution = 60  # more = smoother circle
+        for i in range(resolution + 1):
+            angle = 2 * math.pi * i / resolution
+            px = x + self.astar_lookahead_distance * math.cos(angle)
+            py = y + self.astar_lookahead_distance * math.sin(angle)
+            p = Point()  # Dummy initialization to get geometry_msgs/Point
+            p.x = px
+            p.y = py
+            p.z = 0.05
+            marker.points.append(p)
+
+        self.astar_lookahead_circle_pub.publish(marker)
+
 
     def path_update_cb(self, msg:String):
         if (msg.data == "astar_path"):
@@ -149,6 +258,43 @@ class PurePursuit(Node):
             self.path = self.csv_race_path
 
         self.get_logger().info(f"path has been updated to {msg.data}")
+
+    def find_astar_lookahead_point(self, x, y):
+        """
+        This function returns the lookahead distance and the closest point to the car.
+        Returns the index of the lookahead point as a third element.
+        """
+
+        closest_idx = 0
+        min_dist = float('inf')
+        # First find the closest path point to the car
+        for i, point in enumerate(self.path):
+            dx = point[0] - x
+            dy = point[1] - y
+            dist = math.sqrt(dx**2 + dy**2)
+            if dist < min_dist:
+                min_dist = dist
+                closest_idx = i
+
+        # Now search only forward from that point
+        for i in range(closest_idx, len(self.path)):
+            dx = self.csv_race_path[i][0] - x
+            dy = self.csv_race_path[i][1] - y
+            distance = math.sqrt(dx**2 + dy**2)
+            if distance >= self.astar_lookahead_distance:
+                return self.csv_race_path[i], self.csv_race_path[closest_idx], i
+
+        # If no point was found, assume starting and reset closest idx
+        closest_idx = 0
+        for i in range(closest_idx, len(self.path)):
+            dx = self.csv_race_path[i][0] - x
+            dy = self.csv_race_path[i][1] - y
+            distance = math.sqrt(dx**2 + dy**2)
+            if distance >= self.astar_lookahead_distance:
+                return self.csv_race_path[i], self.csv_race_path[closest_idx], i
+
+        return None, None, None
+
 
     def get_pose(self):
         try:
@@ -171,13 +317,16 @@ class PurePursuit(Node):
             x, y = trans.x, trans.y
             
             self.publish_lookahead_circle(x, y)
+            self.publish_astar_lookahead_circle(x, y)
             self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
             lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(x, y)
-            if lookahead_point is None:
+            astar_lookahead_point, _, _ = self.find_astar_lookahead_point(x, y)
+            if lookahead_point is None or astar_lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
             else:
                 self.pursuit_the_point(lookahead_point, lookahead_index, x, y, yaw, closest_point)
                 self.publish_lookahead_marker(lookahead_point)
+                self.publish_astar_lookahead_marker(astar_lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
