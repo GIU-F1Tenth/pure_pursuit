@@ -100,7 +100,7 @@ class PurePursuit(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.001, self.get_pose)  # 500 Hz
+        self.timer = self.create_timer(0.005, self.get_pose)  # 500 Hz
         self.csv_race_path = []
         self.astar_path = []
         
