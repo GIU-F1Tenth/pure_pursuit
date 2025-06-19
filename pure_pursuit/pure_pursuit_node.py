@@ -14,6 +14,7 @@ from geometry_msgs.msg import Point
 import numpy as np
 from tf2_ros import Buffer, TransformListener
 from sensor_msgs.msg import Joy
+from std_msgs.msg import Bool
 
 def euler_from_quaternion(quaternion):
     """
@@ -52,11 +53,13 @@ class PurePursuit(Node):
         self.declare_parameter("kp", 0.0)
         self.declare_parameter("kd", 0.0)
         self.declare_parameter("is_antiClockwise", False)
+        self.declare_parameter("is_solo", True)  
         self.declare_parameter("k_sigmoid", 8.0)
-        self.declare_parameter("path_chooser_topic", "")
+        self.declare_parameter("path_chooser_topic", "/path_chooser")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
-        self.declare_parameter("astar_path_topic", "")
-        self.declare_parameter("csv_path", "")
+        self.declare_parameter("astar_path_topic", "/astar_pp_path")
+        self.declare_parameter("csv_path", "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/cluj_napoca_berlin_out.csv")
+        self.declare_parameter("vel_division_factor", 1.0)
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -72,34 +75,47 @@ class PurePursuit(Node):
         self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
         self.astar_path_topic = self.get_parameter("astar_path_topic").get_parameter_value().string_value
         self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
+        self.is_solo = self.get_parameter("is_solo").get_parameter_value().bool_value
+        self.vel_division_factor = self.get_parameter("vel_division_factor").get_parameter_value().double_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
         self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
-        self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb)
+        self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb, 10)
+        self.gap_follower_toggle_sub = self.create_subscription(Bool, "/gap_follower_toggle", self.toggle_algo_cb, 10)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
-        self.path = [] # a tuple of (x, y, v) 
+        self.timer = self.create_timer(0.005, self.get_pose)  # 500 Hz
         self.csv_race_path = []
         self.astar_path = []
-
+        
         self.csv_race_path = self.load_path_from_csv(self.csv_path)
-
+    
+        self.path = self.csv_race_path if self.is_solo else [] # a tuple of (x, y, v) 
+        self.get_logger().info(f"Pure Pursuit Node initialized with path: {self.path_chooser_topic}")
+    
+        self.is_active = True
+        
         self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
         self.prev_gamma = 0.0
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
- 
+    
         self.subscription = self.create_subscription(
             Joy,
             'joy',
             self.joy_callback,
             10
         )
+        
+    def toggle_algo_cb(self, msg:Bool):
+        if msg.data:
+            self.is_active = False
+        else:
+            self.is_active = True
     
     def joy_callback(self, msg:Joy):
         if msg.buttons[4] == 1:
@@ -160,12 +176,7 @@ class PurePursuit(Node):
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
             else:
-                perp_distance = self.perp_distance_car_frame_lookahead_point(lookahead_point, x, y, yaw)
-                self.get_logger().info(f"the perp_distance is {perp_distance}")
-                if perp_distance >= self.lookahead_distance:
-                    lookahead_index += 5    
-                    lookahead_point = self.path[lookahead_index]
-                self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
+                self.pursuit_the_point(lookahead_point, lookahead_index, x, y, yaw, closest_point)
                 self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
@@ -208,7 +219,7 @@ class PurePursuit(Node):
             lad = self.max_lad
         return lad
     
-    def pursuit_the_point(self, lookahead_point, x, y, yaw, closest_point):
+    def pursuit_the_point(self, lookahead_point, lookahead_index, x, y, yaw, closest_point):
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
         gamma = 2 * ly / (self.lookahead_distance ** 2)
@@ -218,15 +229,20 @@ class PurePursuit(Node):
         steering_angle = p_controller + d_controller
         
         ackermann = AckermannDriveStamped()
-        if self.activate_autonomous_vel:
+        if self.activate_autonomous_vel and self.is_active:
             if closest_point[2] > 0.0: # that means the published path has velocity
-                ackermann.drive.speed = closest_point[2] # the velocity at this instance
+                ackermann.drive.speed = closest_point[2] / self.vel_division_factor # the velocity at this instance
                 self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
             else:
-                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma) / self.vel_division_factor
                 self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
-        else:
-            ackermann.drive.speed = 0.0
+    
+        perp_distance = self.perp_distance_car_frame_lookahead_point(lookahead_point, x, y, yaw)
+        # self.get_logger().info(f"the perp_distance is {perp_distance}")
+        if perp_distance >= self.lookahead_distance:
+            lookahead_index += 8    
+            ackermann.drive.speed /= 2.0 # halve the speed if the perp distance is too large
+            lookahead_point = self.path[lookahead_index]
         # smoothing the velocity to prevent skidding
         ackermann.drive.speed = self.smooth_vel(self.odometry.twist.twist.linear.x, ackermann.drive.speed)
         ackermann.drive.steering_angle = steering_angle
