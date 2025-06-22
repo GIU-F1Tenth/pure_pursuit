@@ -15,6 +15,7 @@ import numpy as np
 from tf2_ros import Buffer, TransformListener
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool
+from nav_msgs.msg import Path
 
 def euler_from_quaternion(quaternion):
     """
@@ -52,13 +53,13 @@ class PurePursuit(Node):
         self.declare_parameter("odometry_topic", "/o")
         self.declare_parameter("kp", 0.0)
         self.declare_parameter("kd", 0.0)
-        self.declare_parameter("is_antiClockwise", False)
+        self.declare_parameter("is_antiClockwise", True)
         self.declare_parameter("is_solo", True)  
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("path_chooser_topic", "/path_chooser")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
         self.declare_parameter("astar_path_topic", "/astar_pp_path")
-        self.declare_parameter("csv_path", "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/cluj_napoca_berlin_out.csv")
+        self.declare_parameter("csv_path", "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/oda_kbera_out.csv")
         self.declare_parameter("vel_division_factor", 1.0)
 
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -99,6 +100,8 @@ class PurePursuit(Node):
         
         self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
         self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
+        self.csv_path_publisher = self.create_publisher(Path, "/csv_pp_path", 10)
+        self.publish_path(self.csv_race_path)
         self.prev_gamma = 0.0
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
@@ -110,6 +113,24 @@ class PurePursuit(Node):
             self.joy_callback,
             10
         )
+
+    def publish_path(self, path):
+        path_msg = Path()
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+        path_msg.header.frame_id = 'map'  # or 'odom' depending on your setup
+        for current_point in path:
+            x, y, v = current_point
+            pose = PoseStamped()
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = 'map'
+            pose.pose.position.x = x
+            pose.pose.position.y = y
+            pose.pose.position.z = 0.0
+            pose.pose.orientation.w = 0.0  # No rotation
+            path_msg.poses.append(pose)
+        self.csv_path_publisher.publish(path_msg)
+        self.get_logger().info(f"Published path new..")
+
         
     def toggle_algo_cb(self, msg:Bool):
         if msg.data:
@@ -143,9 +164,9 @@ class PurePursuit(Node):
 
 
     def path_update_cb(self, msg:String):
-        if (msg.data == "astar_path"):
+        if msg.data == "astar_path":
             self.path = self.astar_path
-        elif (msg.data == "csv_race_path"):
+        elif msg.data == "csv_race_path":
             self.path = self.csv_race_path
 
         self.get_logger().info(f"path has been updated to {msg.data}")
