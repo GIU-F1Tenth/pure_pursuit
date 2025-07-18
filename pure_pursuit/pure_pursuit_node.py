@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
 import math
 import csv
 import os
@@ -13,6 +14,9 @@ from geometry_msgs.msg import Point
 from sensor_msgs.msg import Joy
 import numpy as np
 from tf2_ros import Buffer, TransformListener
+from sensor_msgs.msg import Joy
+from std_msgs.msg import Bool
+from nav_msgs.msg import Path
 
 def euler_from_quaternion(quaternion):
     """
@@ -40,64 +44,172 @@ def euler_from_quaternion(quaternion):
 
 class PurePursuit(Node):
     def __init__(self):
-        super().__init__('pure_pursuit_node')
+        super().__init__("pure_pursuit_node")
 
-        self.declare_parameter('max_lookahead_distance', 1.0)
-        self.declare_parameter('min_lookahead_distance', 1.0)
-        self.declare_parameter('max_velocity', 0.0)
-        self.declare_parameter('min_velocity', 0.0)
-        self.declare_parameter('cmd_vel_topic', "/d")
-        self.declare_parameter('odometry_topic', "/o")
-        self.declare_parameter('csv_path', '')
-        self.declare_parameter('kp', 0.0)
-        self.declare_parameter('kd', 0.0)
-        self.declare_parameter('is_antiClockwise', False)
-        self.k_sigmoid_param = self.declare_parameter('self.k_sigmoid', 8.0)
+        self.declare_parameter("max_lookahead_distance", 1.0)
+        self.declare_parameter("min_lookahead_distance", 1.0)
+        self.declare_parameter("max_velocity", 0.0)
+        self.declare_parameter("min_velocity", 0.0)
+        self.declare_parameter("cmd_vel_topic", "/d")
+        self.declare_parameter("odometry_topic", "/o")
+        self.declare_parameter("kp", 0.0)
+        self.declare_parameter("kd", 0.0)
+        self.declare_parameter("is_antiClockwise", True)
+        self.declare_parameter("is_solo", True)  
+        self.declare_parameter("k_sigmoid", 8.0)
+        self.declare_parameter("path_chooser_topic", "")
+        self.declare_parameter("skidding_velocity_thresh", 0.0)
+        self.declare_parameter("astar_path_topic", "")
+        self.declare_parameter("csv_path", "")
+        self.declare_parameter("vel_division_factor", 1.0)
 
-        self.kp = self.get_parameter('kp').get_parameter_value().double_value
-        self.kd = self.get_parameter('kd').get_parameter_value().double_value
-        self.max_velocity = self.get_parameter('max_velocity').get_parameter_value().double_value
-        self.min_velocity = self.get_parameter('min_velocity').get_parameter_value().double_value
-        self.min_lad = self.get_parameter('min_lookahead_distance').get_parameter_value().double_value
-        self.max_lad = self.get_parameter('max_lookahead_distance').get_parameter_value().double_value
-        self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
-        self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
-        self.odom_topic = self.get_parameter('odometry_topic').get_parameter_value().string_value
-        self.is_antiClockwise = self.get_parameter('is_antiClockwise').get_parameter_value().bool_value
-        self.k_sigmoid = self.k_sigmoid_param.get_parameter_value().double_value
+        self.kp = self.get_parameter("kp").get_parameter_value().double_value
+        self.kd = self.get_parameter("kd").get_parameter_value().double_value
+        self.max_velocity = self.get_parameter("max_velocity").get_parameter_value().double_value
+        self.min_velocity = self.get_parameter("min_velocity").get_parameter_value().double_value
+        self.min_lad = self.get_parameter("min_lookahead_distance").get_parameter_value().double_value
+        self.max_lad = self.get_parameter("max_lookahead_distance").get_parameter_value().double_value
+        self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
+        self.odom_topic = self.get_parameter("odometry_topic").get_parameter_value().string_value
+        self.is_antiClockwise = self.get_parameter("is_antiClockwise").get_parameter_value().bool_value
+        self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
+        self.path_chooser_topic = self.get_parameter("path_chooser_topic").get_parameter_value().string_value
+        self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
+        self.astar_path_topic = self.get_parameter("astar_path_topic").get_parameter_value().string_value
+        self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
+        self.is_solo = self.get_parameter("is_solo").get_parameter_value().bool_value
+        self.vel_division_factor = self.get_parameter("vel_division_factor").get_parameter_value().double_value
 
         self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
         self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_pub = self.create_publisher(Path, '/pp_path', 10)
-        
+        self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
+        self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb, 10)
+        self.gap_follower_toggle_sub = self.create_subscription(Bool, "/gap_follower_toggle", self.toggle_algo_cb, 10)
+        self.pause_sub = self.create_subscription(Bool, "/pause", self.toggle_stop_cb, 10)
+    
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.005, self.get_pose)  # 50 Hz
+        self.timer = self.create_timer(0.005, self.get_pose)  # 500 Hz
+        self.csv_race_path = []
+        self.astar_path = []
+        self.stop = False
         
-        self.path = self.load_path_from_csv(self.csv_path)
-        if self.is_antiClockwise:
-            self.path.reverse()
-        self.get_logger().info(f"Loaded {len(self.path)} points from {self.csv_path}")
-        self.lookahead_marker_pub = self.create_publisher(Marker, '/lookahead_marker', 10)
-        self.lookahead_circle_pub = self.create_publisher(Marker, '/lookahead_circle', 10)
+        self.csv_race_path = self.load_path_from_csv(self.csv_path)
+        self.csv_race_path.reverse() if self.is_antiClockwise else None
+    
+
+        self.path = self.csv_race_path if self.is_solo else [] # a tuple of (x, y, v) 
+        # self.get_logger().info(f"Pure Pursuit Node initialized with path: {self.path_chooser_topic}")
+    
+        self.is_active = True
+        
+        self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
+        self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
+        self.csv_path_publisher = self.create_publisher(Path, "/csv_pp_path", 10)
+        # self.publish_path(self.csv_race_path)
         self.prev_gamma = 0.0
         self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
-
+    
         self.subscription = self.create_subscription(
             Joy,
             'joy',
             self.joy_callback,
             10
         )
+
+    def publish_path(self, path):
+        path_msg = Path()
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+        path_msg.header.frame_id = 'map'  # or 'odom' depending on your setup
+        for current_point in path:
+            x, y, v = current_point
+            pose = PoseStamped()
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = 'map'
+            pose.pose.position.x = x
+            pose.pose.position.y = y
+            pose.pose.position.z = 0.0
+            pose.pose.orientation.w = 0.0  # No rotation
+            path_msg.poses.append(pose)
+        self.csv_path_publisher.publish(path_msg)
+        # self.get_logger().info(f"Published path new..")
+
+    def toggle_stop_cb(self, msg:Bool):
+        if msg.data:
+            self.stop = True
+            self.get_logger().info("Pure Pursuit stopped")
+        else:
+            self.stop = False
+            self.get_logger().info("Pure Pursuit resumed")
+        
+    def toggle_algo_cb(self, msg:Bool):
+        if msg.data:
+            self.is_active = False
+        else:
+            self.is_active = True
     
+    def joy_callback(self, msg:Joy):
+        
+        # Y
+        if msg.buttons[3] == 1:
+            self.kd += 0.1
+            self.get_logger().info(f"kd increased to {self.kd}")
+        # A
+        if msg.buttons[1] == 1:
+            self.kd -= 0.1
+            self.get_logger().info(f"kd decreased to {self.kd}")
+            
+        # B
+        if msg.buttons[2] == 1:
+            self.kp += 0.1
+            self.get_logger().info(f"kp increased to {self.kp}")
+        # X
+        if msg.buttons[0] == 1:
+            self.kp -= 0.1
+            self.get_logger().info(f"kp decreased to {self.kp}")
+        
+        if msg.buttons[4] == 1:
+            # self.vel_cmd.drive.speed = self.linear_velocity
+            self.activate_autonomous_vel = True
+        else:
+            self.activate_autonomous_vel = False
+
+    def load_path_from_csv(self, csv_path):
+        path = []
+        with open(csv_path, newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                x, y, v = float(row[0]), float(row[1]), float(row[2])
+                path.append((x, y, v))
+
+        # self.get_logger().info(f"Loaded path from {csv_path} with {len(path)} points.")
+        return path
+
+    def astar_path_cb(self, msg:Path):
+        self.astar_path.clear()
+        for i in range(len(msg.poses)):
+            self.astar_path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
+        if self.is_antiClockwise:
+            self.astar_path.reverse()
+        # self.get_logger().info(f"astar path has been updated...")
+
+
+    def path_update_cb(self, msg:String):
+        if msg.data == "astar_path":
+            self.path = self.astar_path
+        elif msg.data == "csv_race_path":
+            self.path = self.csv_race_path
+
+        # self.get_logger().info(f"path has been updated to {msg.data}")
+
     def get_pose(self):
         try:
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
                 'map',      # target_frame
-                'laser',    # source_frame (your base_frame)
+                'base_link',    # source_frame (your base_frame)
                 now,
                 timeout=rclpy.duration.Duration(seconds=0.5)
             )
@@ -114,32 +226,27 @@ class PurePursuit(Node):
             
             self.publish_lookahead_circle(x, y)
             self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
-            lookahead_point, closest_point = self.find_lookahead_point(x, y)
+            lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(x, y)
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found go ")
-        
-            self.pursuit_the_point(lookahead_point, x, y, yaw, closest_point)
-            self.publish_lookahead_marker(lookahead_point)
+            else:
+                self.pursuit_the_point(lookahead_point, lookahead_index, x, y, yaw, closest_point)
+                self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
-    def joy_callback(self, msg:Joy):
-        if msg.buttons[4] == 1:
-            # self.vel_cmd.drive.speed = self.linear_velocity
-            self.activate_autonomous_vel = True
-        else:
-            self.activate_autonomous_vel = False
+    def perp_distance_car_frame_lookahead_point(self, lookahead, x, y, yaw):
+        lookahead_in_car_frame = self.transform_to_vehicle_frame(lookahead, x, y, yaw)
+        return -lookahead_in_car_frame[1] # multiply it by -ve because the positive y is to the left
 
-    def load_path_from_csv(self, csv_path):
-        path = []
-        with open(csv_path, newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                x, y, v = float(row[0]), float(row[1]), float(row[2])
-                path.append((x, y, v))
-        return path
-
+    def smooth_vel(self, curr_vel, targer_vel) -> float:
+        vel = targer_vel
+        if (targer_vel - curr_vel) > self.skidding_velocity_thresh:
+            vel = self.skidding_velocity_thresh + curr_vel
+            # self.get_logger().info("skidding control kicked !!!!!!")
+        return vel
+          
     def odom_callback(self, msg:Odometry):
         self.odometry = msg
         # x = msg.pose.pose.position.x
@@ -153,11 +260,6 @@ class PurePursuit(Node):
         #     return
 
         # self.pursuit_the_point(lookahead_point, x, y, yaw, None)
-
-        # if lookahead_point is None:
-        #     self.get_logger().warn("No lookahead point found")
-        #     return
-
         # self.publish_lookahead_marker(lookahead_point)
 
     def get_lad_thresh(self, v):
@@ -171,7 +273,7 @@ class PurePursuit(Node):
             lad = self.max_lad
         return lad
     
-    def pursuit_the_point(self, lookahead_point, x, y, yaw, closest_point):
+    def pursuit_the_point(self, lookahead_point, lookahead_index, x, y, yaw, closest_point):
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
         gamma = 2 * ly / (self.lookahead_distance ** 2)
@@ -181,18 +283,30 @@ class PurePursuit(Node):
         steering_angle = p_controller + d_controller
         
         ackermann = AckermannDriveStamped()
-        if self.activate_autonomous_vel:
-            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_rationally(gamma)
-            # ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma)
-            ackermann.drive.speed = closest_point[2] / 1.1 # scale down the already caluculated vel from the optimizer
-            # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed}')
-        else:
-            ackermann.drive.speed = 0.0
+        if self.activate_autonomous_vel and self.is_active and not self.stop:
+            if closest_point[2] > 0.0: # that means the published path has velocity
+                ackermann.drive.speed = closest_point[2] / self.vel_division_factor # the velocity at this instance
+                # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
+            else:
+                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma) / self.vel_division_factor
+                # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
+    
+        perp_distance = self.perp_distance_car_frame_lookahead_point(lookahead_point, x, y, yaw)
+        # self.get_logger().info(f"the perp_distance is {perp_distance}")
+        if perp_distance >= self.lookahead_distance:
+            lookahead_index += 8    
+            ackermann.drive.speed /= 2.0 # halve the speed if the perp distance is too large
+            lookahead_point = self.path[lookahead_index]
+        # smoothing the velocity to prevent skidding
+        ackermann.drive.speed = self.smooth_vel(self.odometry.twist.twist.linear.x, ackermann.drive.speed)
         ackermann.drive.steering_angle = steering_angle
         self.cmd_vel_pub.publish(ackermann)
-        self.publish_path()
 
     def find_lookahead_point(self, x, y):
+        """
+        This function returns the lookahead distance and the closest point to the car.
+        Returns the index of the lookahead point as a third element.
+        """
         closest_idx = 0
         min_dist = float('inf')
         # First find the closest path point to the car
@@ -210,7 +324,7 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx]
+                return self.path[i], self.path[closest_idx], i
 
         # If no point was found, assume starting and reset closest idx
         closest_idx = 0
@@ -219,9 +333,9 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx]
+                return self.path[i], self.path[closest_idx], i
 
-        return None, None
+        return None, None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         dx = point[0] - x
@@ -262,18 +376,6 @@ class PurePursuit(Node):
         if vel > self.max_velocity:
             vel = self.max_velocity
         return vel
-
-    def publish_path(self):
-        path_msg = Path()
-        path_msg.header.frame_id = 'map'
-        for point in self.path:
-            pose = PoseStamped()
-            pose.header.frame_id = 'map'
-            pose.pose.position.x = point[0]
-            pose.pose.position.y = point[1]
-            pose.pose.orientation.w = 1.0
-            path_msg.poses.append(pose)
-        self.path_pub.publish(path_msg)
 
     def publish_lookahead_marker(self, point):
         marker = Marker()

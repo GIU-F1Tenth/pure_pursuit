@@ -1,13 +1,18 @@
 pure_pursuit_node:
   ros__parameters:
-    max_lookahead_distance: 1.5
-    min_lookahead_distance: 0.9
-    max_velocity: 3.5
-    min_velocity: 1.7
+    max_lookahead_distance: 2.0
+    min_lookahead_distance: 0.66
+    max_velocity: 4.7
+    min_velocity: 2.2
     cmd_vel_topic: "/ackermann_cmd"
     odometry_topic: "/odom"
-    is_antiClockwise: True
-    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/mansour_3_out.csv"
-    kp: 0.4
-    kd: 1.55
+    path_chooser_topic: "/path_chooser"
+    astar_path_topic: "/astar_pp_path"
+    is_antiClockwise: False
+    is_solo: False
+    kp: 0.45
+    kd: 1.2
     k_sigmoid: 8.0
+    skidding_velocity_thresh: 0.3
+    vel_division_factor: 2.0
+    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/map_race_mod.csv"
