@@ -2,16 +2,27 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>pure_pursuit</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="georgehany064@gmail.com">root</maintainer>
-  <license>TODO: License declaration</license>
+  <version>1.0.0</version>
+  <description>
+    Pure Pursuit path following controller for F1TENTH autonomous racing.
+    Implements adaptive lookahead distance, PID steering control, and 
+    sigmoid-based velocity control for optimal racing performance.
+  </description>
+  
+  <maintainer email="fam@awadlouis.com">Fam Shihata</maintainer>
+  <maintainer>Karim Shousha</maintainer>
+  <maintainer email="georgehany064@gmail.com">George Halim</maintainer>
+  <license>MIT</license>
   <buildtool_depend>setuptools</buildtool_depend>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>ackermann_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
