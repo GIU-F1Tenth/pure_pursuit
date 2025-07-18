@@ -27,7 +27,6 @@ setup(
     maintainer_email='fam@awadlouis.com, georgehany064@gmail.com',
     description='Pure Pursuit path following controller for F1TENTH autonomous racing',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'pure_pursuit_node = pure_pursuit.pure_pursuit_node:main'
