@@ -10,7 +10,6 @@
   </description>
   
   <maintainer email="fam@awadlouis.com">Fam Shihata</maintainer>
-  <maintainer>Karim Shousha</maintainer>
   <maintainer email="georgehany064@gmail.com">George Halim</maintainer>
   <license>MIT</license>
   <buildtool_depend>setuptools</buildtool_depend>
