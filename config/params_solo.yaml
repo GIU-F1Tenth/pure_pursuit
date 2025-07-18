@@ -1,7 +1,7 @@
 pure_pursuit_node:
   ros__parameters:
-    max_lookahead_distance: 1.35
-    min_lookahead_distance: 0.65
+    max_lookahead_distance: 1.85
+    min_lookahead_distance: 0.9
     max_velocity: 4.3
     min_velocity: 0.9
     cmd_vel_topic: "/ackermann_cmd"
@@ -10,9 +10,9 @@ pure_pursuit_node:
     astar_path_topic: "/astar_pp_path"
     is_antiClockwise: True
     is_solo: True
-    kp: 0.45
+    kp: 1.2
     kd: 1.2
     k_sigmoid: 8.0
-    skidding_velocity_thresh: 0.3
-    vel_division_factor: 1.0
-    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/oda_kbera.csv"
+    skidding_velocity_thresh: 0.35
+    vel_division_factor: 0.9
+    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/cantine.csv"

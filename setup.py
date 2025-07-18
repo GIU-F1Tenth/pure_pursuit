@@ -1,4 +1,5 @@
 import os
+from glob import glob
 from setuptools import setup
 
 package_name = 'pure_pursuit'
@@ -8,13 +9,13 @@ setup(
     version='0.0.0',
     packages=[package_name],
     data_files=[
-        ('share/' + package_name + '/launch', ['launch/pure_pursuit.launch.py']),
-        ('share/' + package_name + '/config', ['config/params.yaml']),
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (
-            'share/ament_index/resource_index/packages',
-            [os.path.join('resource', package_name)]
-        ),
+        # Include all launch files
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
+        # Include config files
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
