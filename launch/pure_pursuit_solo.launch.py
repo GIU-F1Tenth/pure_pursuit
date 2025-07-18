@@ -1,8 +1,8 @@
 """
-Launch file for Pure Pursuit Controller - Racing Mode
+Launch file for Pure Pursuit Controller - Solo Mode
 
-This launch file starts the pure pursuit controller with racing configuration.
-Optimized for multi-car racing scenarios.
+This launch file starts the pure pursuit controller with solo racing configuration.
+Optimized for time trial racing with aggressive parameters.
 """
 
 from launch import LaunchDescription
@@ -12,17 +12,17 @@ import os
 
 
 def generate_launch_description():
-    """Generate launch description for racing mode pure pursuit."""
+    """Generate launch description for solo mode pure pursuit."""
     ld = LaunchDescription()
 
     # Get the package share directory
     package_share_dir = get_package_share_directory("pure_pursuit")
 
-    # Path to the racing configuration file
-    param_path = os.path.join(package_share_dir, "config", "params.yaml")
+    # Path to the solo configuration file
+    param_path = os.path.join(package_share_dir, "config", "params_solo.yaml")
 
-    # Pure pursuit node with racing parameters
-    pure_pursuit_racing = Node(
+    # Pure pursuit node with solo parameters
+    pure_pursuit_solo = Node(
         package='pure_pursuit',
         executable='pure_pursuit_node',
         name='pure_pursuit_node',
@@ -32,6 +32,6 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', 'info']
     )
 
-    ld.add_action(pure_pursuit_racing)
+    ld.add_action(pure_pursuit_solo)
 
     return ld

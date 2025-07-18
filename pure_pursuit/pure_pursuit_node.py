@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
+"""
+Pure Pursuit Controller for F1TENTH Autonomous Racing
+
+This module implements a pure pursuit path following algorithm for autonomous
+vehicle navigation in F1TENTH racing scenarios. The controller tracks a
+predefined path while maintaining smooth steering and velocity control.
+"""
 
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry, Path
-from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped, Point
+from std_msgs.msg import String, Bool
 import math
 import csv
 import os
 from ackermann_msgs.msg import AckermannDriveStamped
-from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import Point
+from visualization_msgs.msg import Marker
 from sensor_msgs.msg import Joy
 import numpy as np
 from tf2_ros import Buffer, TransformListener
-from sensor_msgs.msg import Joy
-from std_msgs.msg import Bool
-from nav_msgs.msg import Path
+
 
 def euler_from_quaternion(quaternion):
     """
-    Converts quaternion (w in last place) to euler roll, pitch, yaw
-    quaternion = [x, y, z, w]
-    Bellow should be replaced when porting for ROS 2 Python tf_conversions is done.
+    Convert quaternion to Euler angles.
+
+    Converts quaternion (w in last place) to euler roll, pitch, yaw.
+    This should be replaced when porting for ROS 2 Python tf_conversions is done.
+
+    Args:
+        quaternion (list): Quaternion as [x, y, z, w]
+
+    Returns:
+        tuple: (roll, pitch, yaw) in radians
     """
     x = quaternion[0]
     y = quaternion[1]
@@ -42,87 +53,186 @@ def euler_from_quaternion(quaternion):
 
     return roll, pitch, yaw
 
+
 class PurePursuit(Node):
+    """
+    Pure Pursuit Path Following Controller for F1TENTH Racing.
+
+    This class implements a pure pursuit algorithm for autonomous vehicle navigation.
+    It subscribes to odometry data and publishes Ackermann drive commands to follow
+    a predefined path. The controller supports both CSV-based racing paths.
+
+    Key Features:
+        - Adaptive lookahead distance based on vehicle velocity
+        - PID-based steering control with configurable gains
+        - Sigmoid-based velocity control for smooth cornering
+        - Support for both racing and solo driving modes
+        - Real-time path switching capability
+        - Joystick control for parameter tuning
+        - Visualization markers for debugging
+
+    Attributes:
+        path (list): Current path as list of (x, y, velocity) tuples
+        lookahead_distance (float): Current lookahead distance in meters
+        is_active (bool): Controller activation state
+        stop (bool): Emergency stop flag
+    """
+
     def __init__(self):
+        """
+        Initialize the Pure Pursuit controller node.
+
+        Sets up all ROS2 parameters, subscribers, publishers, and loads the initial path.
+        """
         super().__init__("pure_pursuit_node")
 
+        # Declare all parameters with default values
         self.declare_parameter("max_lookahead_distance", 1.0)
         self.declare_parameter("min_lookahead_distance", 1.0)
         self.declare_parameter("max_velocity", 0.0)
         self.declare_parameter("min_velocity", 0.0)
-        self.declare_parameter("cmd_vel_topic", "/d")
-        self.declare_parameter("odometry_topic", "/o")
+        self.declare_parameter("cmd_vel_topic", "/ackermann_cmd")
+        self.declare_parameter("odometry_topic", "/odom")
         self.declare_parameter("kp", 0.0)
         self.declare_parameter("kd", 0.0)
         self.declare_parameter("is_antiClockwise", True)
-        self.declare_parameter("is_solo", True)  
+        self.declare_parameter("is_solo", True)
         self.declare_parameter("k_sigmoid", 8.0)
-        self.declare_parameter("path_chooser_topic", "")
+        self.declare_parameter("path_chooser_topic", "/path_chooser")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
-        self.declare_parameter("astar_path_topic", "")
+        self.declare_parameter("astar_path_topic", "/astar_pp_path")
         self.declare_parameter("csv_path", "")
         self.declare_parameter("vel_division_factor", 1.0)
+        self.declare_parameter("joy_topic", "joy")
+        self.declare_parameter(
+            "gap_follower_toggle_topic", "/gap_follower_toggle")
+        self.declare_parameter("pause_topic", "/pause")
+        self.declare_parameter("control_frequency", 200.0)
+        self.declare_parameter("tf_timeout", 0.5)
+        self.declare_parameter("marker_resolution", 60)
+        self.declare_parameter("subscriber_queue_size", 10)
+        self.declare_parameter("publisher_queue_size", 10)
 
+        # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
-        self.max_velocity = self.get_parameter("max_velocity").get_parameter_value().double_value
-        self.min_velocity = self.get_parameter("min_velocity").get_parameter_value().double_value
-        self.min_lad = self.get_parameter("min_lookahead_distance").get_parameter_value().double_value
-        self.max_lad = self.get_parameter("max_lookahead_distance").get_parameter_value().double_value
-        self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
-        self.odom_topic = self.get_parameter("odometry_topic").get_parameter_value().string_value
-        self.is_antiClockwise = self.get_parameter("is_antiClockwise").get_parameter_value().bool_value
-        self.k_sigmoid = self.get_parameter("k_sigmoid").get_parameter_value().double_value
-        self.path_chooser_topic = self.get_parameter("path_chooser_topic").get_parameter_value().string_value
-        self.skidding_velocity_thresh = self.get_parameter("skidding_velocity_thresh").get_parameter_value().double_value
-        self.astar_path_topic = self.get_parameter("astar_path_topic").get_parameter_value().string_value
-        self.csv_path = self.get_parameter("csv_path").get_parameter_value().string_value
-        self.is_solo = self.get_parameter("is_solo").get_parameter_value().bool_value
-        self.vel_division_factor = self.get_parameter("vel_division_factor").get_parameter_value().double_value
+        self.max_velocity = self.get_parameter(
+            "max_velocity").get_parameter_value().double_value
+        self.min_velocity = self.get_parameter(
+            "min_velocity").get_parameter_value().double_value
+        self.min_lad = self.get_parameter(
+            "min_lookahead_distance").get_parameter_value().double_value
+        self.max_lad = self.get_parameter(
+            "max_lookahead_distance").get_parameter_value().double_value
+        self.cmd_vel_topic = self.get_parameter(
+            "cmd_vel_topic").get_parameter_value().string_value
+        self.odom_topic = self.get_parameter(
+            "odometry_topic").get_parameter_value().string_value
+        self.is_antiClockwise = self.get_parameter(
+            "is_antiClockwise").get_parameter_value().bool_value
+        self.k_sigmoid = self.get_parameter(
+            "k_sigmoid").get_parameter_value().double_value
+        self.path_chooser_topic = self.get_parameter(
+            "path_chooser_topic").get_parameter_value().string_value
+        self.skidding_velocity_thresh = self.get_parameter(
+            "skidding_velocity_thresh").get_parameter_value().double_value
+        self.astar_path_topic = self.get_parameter(
+            "astar_path_topic").get_parameter_value().string_value
+        self.csv_path = self.get_parameter(
+            "csv_path").get_parameter_value().string_value
+        self.is_solo = self.get_parameter(
+            "is_solo").get_parameter_value().bool_value
+        self.vel_division_factor = self.get_parameter(
+            "vel_division_factor").get_parameter_value().double_value
+        self.joy_topic = self.get_parameter(
+            "joy_topic").get_parameter_value().string_value
+        self.gap_follower_toggle_topic = self.get_parameter(
+            "gap_follower_toggle_topic").get_parameter_value().string_value
+        self.pause_topic = self.get_parameter(
+            "pause_topic").get_parameter_value().string_value
+        self.control_frequency = self.get_parameter(
+            "control_frequency").get_parameter_value().double_value
+        self.tf_timeout = self.get_parameter(
+            "tf_timeout").get_parameter_value().double_value
+        self.marker_resolution = int(self.get_parameter(
+            "marker_resolution").get_parameter_value().integer_value)
+        self.queue_size = int(self.get_parameter(
+            "subscriber_queue_size").get_parameter_value().integer_value)
+        self.pub_queue_size = int(self.get_parameter(
+            "publisher_queue_size").get_parameter_value().integer_value)
 
-        self.odom_sub = self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
-        self.cmd_vel_pub = self.create_publisher(AckermannDriveStamped, self.cmd_vel_topic, 10)
-        self.path_sub = self.create_subscription(String, self.path_chooser_topic, self.path_update_cb, 10)
-        self.astar_path = self.create_subscription(Path, self.astar_path_topic, self.astar_path_cb, 10)
-        self.gap_follower_toggle_sub = self.create_subscription(Bool, "/gap_follower_toggle", self.toggle_algo_cb, 10)
-        self.pause_sub = self.create_subscription(Bool, "/pause", self.toggle_stop_cb, 10)
-    
+        # Initialize subscribers and publishers
+        self.odom_sub = self.create_subscription(
+            Odometry, self.odom_topic, self.odom_callback, self.queue_size)
+        self.cmd_vel_pub = self.create_publisher(
+            AckermannDriveStamped, self.cmd_vel_topic, self.pub_queue_size)
+        self.path_sub = self.create_subscription(
+            String, self.path_chooser_topic, self.path_update_cb, self.queue_size)
+        self.astar_path_sub = self.create_subscription(
+            Path, self.astar_path_topic, self.astar_path_cb, self.queue_size)
+        self.gap_follower_toggle_sub = self.create_subscription(
+            Bool, self.gap_follower_toggle_topic, self.toggle_algo_cb, self.queue_size)
+        self.pause_sub = self.create_subscription(
+            Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
+        self.joy_sub = self.create_subscription(
+            Joy, self.joy_topic, self.joy_callback, self.queue_size)
+        # Initialize TF2 components
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.005, self.get_pose)  # 500 Hz
+
+        # Create control timer with configurable frequency
+        timer_period = 1.0 / self.control_frequency
+        self.timer = self.create_timer(timer_period, self.get_pose)
+
+        # Initialize path data structures
         self.csv_race_path = []
         self.astar_path = []
-        self.stop = False
-        
-        self.csv_race_path = self.load_path_from_csv(self.csv_path)
-        self.csv_race_path.reverse() if self.is_antiClockwise else None
-    
 
-        self.path = self.csv_race_path if self.is_solo else [] # a tuple of (x, y, v) 
-        # self.get_logger().info(f"Pure Pursuit Node initialized with path: {self.path_chooser_topic}")
-    
+        # Control state variables
+        self.stop = False
         self.is_active = True
-        
-        self.lookahead_marker_pub = self.create_publisher(Marker, "/lookahead_marker", 10)
-        self.lookahead_circle_pub = self.create_publisher(Marker, "/lookahead_circle", 10)
-        self.csv_path_publisher = self.create_publisher(Path, "/csv_pp_path", 10)
-        # self.publish_path(self.csv_race_path)
+        self.activate_autonomous_vel = False
         self.prev_gamma = 0.0
-        self.activate_autonomous_vel = False 
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
-    
-        self.subscription = self.create_subscription(
-            Joy,
-            'joy',
-            self.joy_callback,
-            10
-        )
+
+        # Load and configure the racing path
+        if self.csv_path:
+            self.csv_race_path = self.load_path_from_csv(self.csv_path)
+            if self.is_antiClockwise:
+                self.csv_race_path.reverse()
+
+        # Set initial path based on mode
+        self.path = self.csv_race_path if self.is_solo else []
+
+        # Initialize visualization publishers
+        self.lookahead_marker_pub = self.create_publisher(
+            Marker, "/lookahead_marker", self.pub_queue_size)
+        self.lookahead_circle_pub = self.create_publisher(
+            Marker, "/lookahead_circle", self.pub_queue_size)
+        self.csv_path_publisher = self.create_publisher(
+            Path, "/csv_pp_path", self.pub_queue_size)
+
+        self.get_logger().info("Pure Pursuit Node initialized successfully")
+        self.get_logger().info(
+            f"Control frequency: {self.control_frequency} Hz")
+        self.get_logger().info(f"Solo mode: {self.is_solo}")
+        self.get_logger().info(f"Anti-clockwise: {self.is_antiClockwise}")
+        if self.csv_path:
+            self.get_logger().info(
+                f"Loaded path with {len(self.csv_race_path)} points")
 
     def publish_path(self, path):
+        """
+        Publish the current path as a ROS Path message for visualization.
+
+        Args:
+            path (list): List of (x, y, velocity) tuples representing the path
+        """
         path_msg = Path()
         path_msg.header.stamp = self.get_clock().now().to_msg()
-        path_msg.header.frame_id = 'map'  # or 'odom' depending on your setup
+        path_msg.header.frame_id = 'map'
+
         for current_point in path:
             x, y, v = current_point
             pose = PoseStamped()
@@ -133,183 +243,355 @@ class PurePursuit(Node):
             pose.pose.position.z = 0.0
             pose.pose.orientation.w = 0.0  # No rotation
             path_msg.poses.append(pose)
-        self.csv_path_publisher.publish(path_msg)
-        # self.get_logger().info(f"Published path new..")
 
-    def toggle_stop_cb(self, msg:Bool):
+        self.csv_path_publisher.publish(path_msg)
+
+    def toggle_stop_cb(self, msg: Bool):
+        """
+        Emergency stop callback to pause/resume the controller.
+
+        Args:
+            msg (Bool): True to stop, False to resume
+        """
         if msg.data:
             self.stop = True
             self.get_logger().info("Pure Pursuit stopped")
         else:
             self.stop = False
             self.get_logger().info("Pure Pursuit resumed")
-        
-    def toggle_algo_cb(self, msg:Bool):
+
+    def toggle_algo_cb(self, msg: Bool):
+        """
+        Toggle between pure pursuit and gap follower algorithms.
+
+        Args:
+            msg (Bool): True to deactivate pure pursuit, False to activate
+        """
         if msg.data:
             self.is_active = False
+            self.get_logger().info("Pure Pursuit deactivated - Gap follower active")
         else:
             self.is_active = True
-    
-    def joy_callback(self, msg:Joy):
-        
-        # Y
+            self.get_logger().info("Pure Pursuit activated")
+
+    def joy_callback(self, msg: Joy):
+        """
+        Joystick callback for real-time parameter tuning during operation.
+
+        Button mapping:
+        - Y (button 3): Increase kd by 0.1
+        - A (button 1): Decrease kd by 0.1  
+        - B (button 2): Increase kp by 0.1
+        - X (button 0): Decrease kp by 0.1
+        - LB (button 4): Enable autonomous velocity control
+
+        Args:
+            msg (Joy): Joystick message containing button and axis states
+        """
+        # Y button - Increase derivative gain
         if msg.buttons[3] == 1:
             self.kd += 0.1
-            self.get_logger().info(f"kd increased to {self.kd}")
-        # A
+            self.get_logger().info(f"kd increased to {self.kd:.2f}")
+
+        # A button - Decrease derivative gain
         if msg.buttons[1] == 1:
             self.kd -= 0.1
-            self.get_logger().info(f"kd decreased to {self.kd}")
-            
-        # B
+            self.get_logger().info(f"kd decreased to {self.kd:.2f}")
+
+        # B button - Increase proportional gain
         if msg.buttons[2] == 1:
             self.kp += 0.1
-            self.get_logger().info(f"kp increased to {self.kp}")
-        # X
+            self.get_logger().info(f"kp increased to {self.kp:.2f}")
+
+        # X button - Decrease proportional gain
         if msg.buttons[0] == 1:
             self.kp -= 0.1
-            self.get_logger().info(f"kp decreased to {self.kp}")
-        
+            self.get_logger().info(f"kp decreased to {self.kp:.2f}")
+
+        # LB button - Toggle autonomous velocity control
         if msg.buttons[4] == 1:
-            # self.vel_cmd.drive.speed = self.linear_velocity
             self.activate_autonomous_vel = True
         else:
             self.activate_autonomous_vel = False
 
     def load_path_from_csv(self, csv_path):
-        path = []
-        with open(csv_path, newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                x, y, v = float(row[0]), float(row[1]), float(row[2])
-                path.append((x, y, v))
+        """
+        Load a racing path from a CSV file.
 
-        # self.get_logger().info(f"Loaded path from {csv_path} with {len(path)} points.")
+        Expected CSV format: x, y, velocity (one point per line)
+
+        Args:
+            csv_path (str): Path to the CSV file containing waypoints
+
+        Returns:
+            list: List of (x, y, velocity) tuples representing the path
+
+        Raises:
+            FileNotFoundError: If the CSV file doesn't exist
+            ValueError: If the CSV format is incorrect
+        """
+        path = []
+        try:
+            with open(csv_path, newline='') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    if len(row) >= 3:
+                        x, y, v = float(row[0]), float(row[1]), float(row[2])
+                        path.append((x, y, v))
+                    else:
+                        self.get_logger().warn(
+                            f"Invalid CSV row format: {row}")
+        except FileNotFoundError:
+            self.get_logger().error(f"CSV file not found: {csv_path}")
+            return []
+        except Exception as e:
+            self.get_logger().error(f"Error loading CSV file: {e}")
+            return []
+
+        self.get_logger().info(
+            f"Loaded path from {csv_path} with {len(path)} points")
         return path
 
-    def astar_path_cb(self, msg:Path):
+    def astar_path_cb(self, msg: Path):
+        """
+        Callback for receiving A* generated paths.
+
+        Args:
+            msg (Path): ROS Path message containing A* waypoints
+        """
         self.astar_path.clear()
-        for i in range(len(msg.poses)):
-            self.astar_path.append((msg.poses[i].pose.position.x, msg.poses[i].pose.position.y, msg.poses[i].pose.orientation.w))
+        for pose in msg.poses:
+            x = pose.pose.position.x
+            y = pose.pose.position.y
+            v = pose.pose.orientation.w  # Velocity stored in orientation.w
+            self.astar_path.append((x, y, v))
+
         if self.is_antiClockwise:
             self.astar_path.reverse()
-        # self.get_logger().info(f"astar path has been updated...")
 
+        self.get_logger().info(
+            f"A* path updated with {len(self.astar_path)} points")
 
-    def path_update_cb(self, msg:String):
+    def path_update_cb(self, msg: String):
+        """
+        Callback for switching between different path sources.
+
+        Args:
+            msg (String): Path source identifier ("astar_path" or "csv_race_path")
+        """
         if msg.data == "astar_path":
             self.path = self.astar_path
+            self.get_logger().info("Switched to A* path")
         elif msg.data == "csv_race_path":
             self.path = self.csv_race_path
-
-        # self.get_logger().info(f"path has been updated to {msg.data}")
+            self.get_logger().info("Switched to CSV race path")
+        else:
+            self.get_logger().warn(f"Unknown path type: {msg.data}")
 
     def get_pose(self):
+        """
+        Main control loop that gets robot pose and executes pure pursuit control.
+
+        This method is called at the configured control frequency. It:
+        1. Gets the current robot pose from TF2
+        2. Calculates lookahead distance based on current velocity
+        3. Finds the appropriate lookahead point on the path
+        4. Executes pure pursuit control to track that point
+        5. Publishes visualization markers for debugging
+        """
         try:
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
-                'map',      # target_frame
-                'base_link',    # source_frame (your base_frame)
+                'map',          # target_frame
+                'base_link',    # source_frame
                 now,
-                timeout=rclpy.duration.Duration(seconds=0.5)
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout)
             )
 
             trans = transform.transform.translation
             rot = transform.transform.rotation
 
-            # Convert quaternion to yaw
+            # Convert quaternion to yaw angle
             orientation_list = [rot.x, rot.y, rot.z, rot.w]
             _, _, yaw = euler_from_quaternion(orientation_list)
 
-            # self.get_logger().info(f"Robot Pose - x: {trans.x:.2f}, y: {trans.y:.2f}, yaw: {yaw:.2f}")
             x, y = trans.x, trans.y
-            
+
+            # Publish visualization markers
             self.publish_lookahead_circle(x, y)
-            self.lookahead_distance = self.get_lad_thresh(self.odometry.twist.twist.linear.x)
-            lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(x, y)
+
+            # Calculate adaptive lookahead distance
+            self.lookahead_distance = self.get_lad_thresh(
+                self.odometry.twist.twist.linear.x)
+
+            # Find the lookahead point on the path
+            lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(
+                x, y)
+
             if lookahead_point is None:
-                self.get_logger().warn("No lookahead point found go ")
-            else:
-                self.pursuit_the_point(lookahead_point, lookahead_index, x, y, yaw, closest_point)
-                self.publish_lookahead_marker(lookahead_point)
+                self.get_logger().warn("No lookahead point found")
+                return
+
+            # Execute pure pursuit control
+            self.pursuit_the_point(
+                lookahead_point, lookahead_index, x, y, yaw, closest_point)
+
+            # Publish lookahead point marker for visualization
+            self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
     def perp_distance_car_frame_lookahead_point(self, lookahead, x, y, yaw):
-        lookahead_in_car_frame = self.transform_to_vehicle_frame(lookahead, x, y, yaw)
-        return -lookahead_in_car_frame[1] # multiply it by -ve because the positive y is to the left
+        """
+        Calculate perpendicular distance from vehicle to lookahead point in vehicle frame.
 
-    def smooth_vel(self, curr_vel, targer_vel) -> float:
-        vel = targer_vel
-        if (targer_vel - curr_vel) > self.skidding_velocity_thresh:
+        Args:
+            lookahead (tuple): (x, y, v) coordinates of lookahead point
+            x (float): Current vehicle x position
+            y (float): Current vehicle y position  
+            yaw (float): Current vehicle yaw angle
+
+        Returns:
+            float: Perpendicular distance (negative = left, positive = right)
+        """
+        lookahead_in_car_frame = self.transform_to_vehicle_frame(
+            lookahead, x, y, yaw)
+        # Negative because positive y is to the left
+        return -lookahead_in_car_frame[1]
+
+    def smooth_vel(self, curr_vel, target_vel) -> float:
+        """
+        Apply velocity smoothing to prevent wheel skidding and abrupt changes.
+
+        Args:
+            curr_vel (float): Current vehicle velocity
+            target_vel (float): Desired target velocity
+
+        Returns:
+            float: Smoothed velocity command
+        """
+        vel = target_vel
+        if (target_vel - curr_vel) > self.skidding_velocity_thresh:
             vel = self.skidding_velocity_thresh + curr_vel
-            # self.get_logger().info("skidding control kicked !!!!!!")
-        return vel
-          
-    def odom_callback(self, msg:Odometry):
-        self.odometry = msg
-        # x = msg.pose.pose.position.x
-        # y = msg.pose.pose.position.y
-        # self.publish_lookahead_circle(x, y)
-        # yaw = self.get_yaw_from_quaternion(msg.pose.pose.orientation)
-        # self.lookahead_distance = self.get_lad_thresh(msg.twist.twist.linear.x)
-        # lookahead_point = self.find_lookahead_point(x, y)[0]
-        # if lookahead_point is None:
-        #     self.get_logger().warn("No lookahead point found")
-        #     return
 
-        # self.pursuit_the_point(lookahead_point, x, y, yaw, None)
-        # self.publish_lookahead_marker(lookahead_point)
+        return vel
+
+    def odom_callback(self, msg: Odometry):
+        """
+        Odometry callback to store the latest vehicle state.
+
+        Args:
+            msg (Odometry): Vehicle odometry containing pose and twist information
+        """
+        self.odometry = msg
 
     def get_lad_thresh(self, v):
-        # lad = m*v + c
-        m = (self.max_lad - self.min_lad)/(self.max_velocity - self.min_velocity)
+        """
+        Calculate adaptive lookahead distance based on current velocity.
+
+        Uses linear interpolation between min/max lookahead distances based on
+        the velocity range. Higher velocities get larger lookahead distances.
+
+        Args:
+            v (float): Current vehicle velocity in m/s
+
+        Returns:
+            float: Calculated lookahead distance in meters
+        """
+        # Linear interpolation: lad = m*v + c
+        m = (self.max_lad - self.min_lad) / \
+            (self.max_velocity - self.min_velocity)
         c = self.max_lad - m * self.max_velocity
         lad = m * v + c
-        if lad < self.min_lad:
-            lad = self.min_lad
-        if lad > self.max_lad:
-            lad = self.max_lad
+
+        # Clamp to bounds
+        lad = max(self.min_lad, min(self.max_lad, lad))
         return lad
-    
+
     def pursuit_the_point(self, lookahead_point, lookahead_index, x, y, yaw, closest_point):
+        """
+        Execute pure pursuit control to track the lookahead point.
+
+        This is the core control algorithm that:
+        1. Transforms lookahead point to vehicle frame
+        2. Calculates curvature (gamma) for steering control
+        3. Applies PD control for steering angle
+        4. Determines appropriate velocity based on path curvature
+        5. Publishes Ackermann drive command
+
+        Args:
+            lookahead_point (tuple): (x, y, v) target point coordinates
+            lookahead_index (int): Index of lookahead point in path
+            x (float): Current vehicle x position
+            y (float): Current vehicle y position
+            yaw (float): Current vehicle yaw angle
+            closest_point (tuple): (x, y, v) closest point on path to vehicle
+        """
+        # Transform lookahead point to vehicle frame
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
+        # Calculate curvature (gamma) for pure pursuit steering
         gamma = 2 * ly / (self.lookahead_distance ** 2)
-        d_controller = (self.prev_gamma - gamma)*self.kd
-        p_controller = self.kp*gamma
+
+        # PD control for steering angle
+        d_controller = (self.prev_gamma - gamma) * self.kd
+        p_controller = self.kp * gamma
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
-        
+
+        # Create Ackermann drive command
         ackermann = AckermannDriveStamped()
+        ackermann.header.stamp = self.get_clock().now().to_msg()
+        ackermann.header.frame_id = 'base_link'
+
+        # Determine velocity based on autonomous mode and path information
         if self.activate_autonomous_vel and self.is_active and not self.stop:
-            if closest_point[2] > 0.0: # that means the published path has velocity
-                ackermann.drive.speed = closest_point[2] / self.vel_division_factor # the velocity at this instance
-                # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <opt_vel>')                
-            else:
-                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(gamma) / self.vel_division_factor
-                # self.get_logger().info(f'gamma: {gamma} vel: {ackermann.drive.speed} <sigmoidally>')
-    
-        perp_distance = self.perp_distance_car_frame_lookahead_point(lookahead_point, x, y, yaw)
-        # self.get_logger().info(f"the perp_distance is {perp_distance}")
+            if closest_point[2] > 0.0:  # Path has velocity information
+                ackermann.drive.speed = closest_point[2] / \
+                    self.vel_division_factor
+            else:  # Use sigmoid velocity control based on steering curvature
+                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(
+                    gamma) / self.vel_division_factor
+
+        # Check if perpendicular distance is too large (off-track detection)
+        perp_distance = self.perp_distance_car_frame_lookahead_point(
+            lookahead_point, x, y, yaw)
         if perp_distance >= self.lookahead_distance:
-            lookahead_index += 8    
-            ackermann.drive.speed /= 2.0 # halve the speed if the perp distance is too large
-            lookahead_point = self.path[lookahead_index]
-        # smoothing the velocity to prevent skidding
-        ackermann.drive.speed = self.smooth_vel(self.odometry.twist.twist.linear.x, ackermann.drive.speed)
+            lookahead_index += 8    # Skip ahead in path
+            ackermann.drive.speed /= 2.0  # Reduce speed for safety
+            if lookahead_index < len(self.path):
+                lookahead_point = self.path[lookahead_index]
+
+        # Apply velocity smoothing to prevent skidding
+        ackermann.drive.speed = self.smooth_vel(
+            self.odometry.twist.twist.linear.x, ackermann.drive.speed)
         ackermann.drive.steering_angle = steering_angle
+
+        # Publish the control command
         self.cmd_vel_pub.publish(ackermann)
 
     def find_lookahead_point(self, x, y):
         """
-        This function returns the lookahead distance and the closest point to the car.
-        Returns the index of the lookahead point as a third element.
+        Find the appropriate lookahead point on the path for pure pursuit control.
+
+        This method:
+        1. Finds the closest point on the path to the vehicle
+        2. Searches forward from that point for a point at lookahead distance
+        3. Returns the lookahead point, closest point, and lookahead index
+
+        Args:
+            x (float): Current vehicle x position
+            y (float): Current vehicle y position
+
+        Returns:
+            tuple: (lookahead_point, closest_point, lookahead_index) or (None, None, None)
+                  if no suitable point is found
         """
         closest_idx = 0
         min_dist = float('inf')
-        # First find the closest path point to the car
+
+        # Find the closest path point to the vehicle
         for i, point in enumerate(self.path):
             dx = point[0] - x
             dy = point[1] - y
@@ -318,7 +600,7 @@ class PurePursuit(Node):
                 min_dist = dist
                 closest_idx = i
 
-        # Now search only forward from that point
+        # Search forward from closest point for lookahead point
         for i in range(closest_idx, len(self.path)):
             dx = self.path[i][0] - x
             dy = self.path[i][1] - y
@@ -326,9 +608,8 @@ class PurePursuit(Node):
             if distance >= self.lookahead_distance:
                 return self.path[i], self.path[closest_idx], i
 
-        # If no point was found, assume starting and reset closest idx
-        closest_idx = 0
-        for i in range(closest_idx, len(self.path)):
+        # If no point found, search from beginning (path wrap-around)
+        for i in range(0, len(self.path)):
             dx = self.path[i][0] - x
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
@@ -338,6 +619,18 @@ class PurePursuit(Node):
         return None, None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
+        """
+        Transform a point from global frame to vehicle frame.
+
+        Args:
+            point (tuple): (x, y, v) point coordinates in global frame
+            x (float): Vehicle x position in global frame
+            y (float): Vehicle y position in global frame
+            yaw (float): Vehicle yaw angle
+
+        Returns:
+            tuple: (x, y) coordinates in vehicle frame
+        """
         dx = point[0] - x
         dy = point[1] - y
         transformed_x = math.cos(-yaw) * dx - math.sin(-yaw) * dy
@@ -345,41 +638,102 @@ class PurePursuit(Node):
         return transformed_x, transformed_y
 
     def get_yaw_from_quaternion(self, q):
+        """
+        Extract yaw angle from quaternion orientation.
+
+        Args:
+            q: Quaternion object with w, x, y, z components
+
+        Returns:
+            float: Yaw angle in radians
+        """
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
 
-    def find_linear_vel_steering_controlled_rationally(self, gamma): # using the rational profile
-        k = 7.0  # Increase for steeper drop
-        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
+    def find_linear_vel_steering_controlled_rationally(self, gamma):
+        """
+        Calculate velocity using rational function based on steering curvature.
+
+        Args:
+            gamma (float): Curvature value for current steering
+
+        Returns:
+            float: Calculated velocity within min/max bounds
+        """
+        k = 7.0  # Steepness parameter
+        vel = self.min_velocity + \
+            (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
         return max(self.min_velocity, min(self.max_velocity, vel))
 
     def compute_c(self, v_min, v_max, k):
-        return  -1*(1 / k) * np.log((v_max - v_max*0.999) / (v_max*0.999 - v_min))
-    
-    def find_linear_vel_steering_controlled_sigmoidally(self, gamma): # Sigmoid formula
-        k = self.k_sigmoid # increase this variable if you want to make the curve more steep
-        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)))))
-          # Clamp velocity to safety bounds
+        """
+        Compute the sigmoid offset parameter for velocity control.
+
+        Args:
+            v_min (float): Minimum velocity
+            v_max (float): Maximum velocity  
+            k (float): Sigmoid steepness parameter
+
+        Returns:
+            float: Sigmoid offset parameter
+        """
+        return -1 * (1 / k) * np.log((v_max - v_max * 0.999) / (v_max * 0.999 - v_min))
+
+    def find_linear_vel_steering_controlled_sigmoidally(self, gamma):
+        """
+        Calculate velocity using sigmoid function based on steering curvature.
+
+        This provides smooth velocity transitions that slow down in tight corners
+        and speed up on straights, improving both safety and performance.
+
+        Args:
+            gamma (float): Curvature value for current steering
+
+        Returns:
+            float: Calculated velocity within min/max bounds
+        """
+        k = self.k_sigmoid
+        c = self.compute_c(v_min=self.min_velocity,
+                           v_max=self.max_velocity, k=k)
+        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) /
+                                   (1 + np.exp(k * (abs(gamma) - c))))
+
+        # Clamp velocity to safety bounds
         vel = max(self.min_velocity, min(self.max_velocity, vel))
         return vel
 
     def find_linear_vel_steering_controlled(self, gamma):
-        # vel = m*gamma + c
+        """
+        Calculate velocity using linear relationship with steering curvature.
+
+        Args:
+            gamma (float): Curvature value for current steering
+
+        Returns:
+            float: Calculated velocity within min/max bounds
+        """
+        # Linear relationship: vel = m*gamma + c
         self.min_gamma = 0.0
-        self.max_gamma = 2/self.lookahead_distance
-        m = (self.min_velocity - self.max_velocity)/(self.max_gamma - self.min_gamma)
-        c = self.min_velocity - m*(self.max_gamma)
-        vel = m*(gamma) + c
-        if vel < self.min_velocity:
-            vel = self.min_velocity
-        if vel > self.max_velocity:
-            vel = self.max_velocity
+        self.max_gamma = 2 / self.lookahead_distance
+        m = (self.min_velocity - self.max_velocity) / \
+            (self.max_gamma - self.min_gamma)
+        c = self.min_velocity - m * self.max_gamma
+        vel = m * gamma + c
+
+        # Clamp to bounds
+        vel = max(self.min_velocity, min(self.max_velocity, vel))
         return vel
 
     def publish_lookahead_marker(self, point):
+        """
+        Publish a visual marker for the current lookahead point.
+
+        Args:
+            point (tuple): (x, y, v) coordinates of the lookahead point
+        """
         marker = Marker()
-        marker.header.frame_id = 'map'  # or 'map' depending on your frame
+        marker.header.frame_id = 'map'
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "lookahead"
         marker.id = 0
@@ -392,34 +746,40 @@ class PurePursuit(Node):
         marker.scale.x = 0.3
         marker.scale.y = 0.3
         marker.scale.z = 0.3
-        marker.color.a = 1.0
-        marker.color.r = 1.0
+        marker.color.a = 1.0  # Fully opaque
+        marker.color.r = 1.0  # Red
         marker.color.g = 0.0
         marker.color.b = 0.0
         self.lookahead_marker_pub.publish(marker)
 
     def publish_lookahead_circle(self, x, y):
+        """
+        Publish a visual circle marker showing the current lookahead distance.
+
+        Args:
+            x (float): Vehicle x position (center of circle)
+            y (float): Vehicle y position (center of circle)
+        """
         marker = Marker()
-        marker.header.frame_id = 'map'  # or 'map' if you're using that
+        marker.header.frame_id = 'map'
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "lookahead"
         marker.id = 1
         marker.type = Marker.LINE_STRIP
         marker.action = Marker.ADD
         marker.pose.orientation.w = 1.0
-        marker.scale.x = 0.03  # line thickness
-        marker.color.a = 1.0
+        marker.scale.x = 0.03  # Line thickness
+        marker.color.a = 1.0   # Fully opaque
         marker.color.r = 0.0
-        marker.color.g = 1.0
+        marker.color.g = 1.0   # Green
         marker.color.b = 0.0
 
-        # Create circle points
-        resolution = 60  # more = smoother circle
-        for i in range(resolution + 1):
-            angle = 2 * math.pi * i / resolution
+        # Create circle points around vehicle position
+        for i in range(self.marker_resolution + 1):
+            angle = 2 * math.pi * i / self.marker_resolution
             px = x + self.lookahead_distance * math.cos(angle)
             py = y + self.lookahead_distance * math.sin(angle)
-            p = Point()  # Dummy initialization to get geometry_msgs/Point
+            p = Point()
             p.x = px
             p.y = py
             p.z = 0.05
@@ -427,12 +787,25 @@ class PurePursuit(Node):
 
         self.lookahead_circle_pub.publish(marker)
 
+
 def main(args=None):
+    """
+    Main function to initialize and run the Pure Pursuit node.
+
+    Args:
+        args: Command line arguments (optional)
+    """
     rclpy.init(args=args)
     node = PurePursuit()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        node.get_logger().info("Pure Pursuit node shutting down...")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
