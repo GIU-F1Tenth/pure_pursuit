@@ -1,13 +1,39 @@
 pure_pursuit_node:
   ros__parameters:
-    max_lookahead_distance: 1.5
-    min_lookahead_distance: 0.9
-    max_velocity: 3.5
-    min_velocity: 1.7
-    cmd_vel_topic: "/ackermann_cmd"
-    odometry_topic: "/odom"
-    is_antiClockwise: True
-    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/pure_pursuit/path/mansour_3_out.csv"
-    kp: 0.4
-    kd: 1.55
-    k_sigmoid: 8.0
+    # Lookahead Distance Parameters
+    max_lookahead_distance: 2.0      # Maximum lookahead distance in meters
+    min_lookahead_distance: 0.66     # Minimum lookahead distance in meters
+    
+    # Velocity Control Parameters
+    max_velocity: 4.7                 # Maximum allowed velocity in m/s
+    min_velocity: 2.2                 # Minimum allowed velocity in m/s
+    vel_division_factor: 2.0          # Factor to reduce velocity commands
+    skidding_velocity_thresh: 0.3     # Velocity threshold to prevent skidding
+    
+    # Control Parameters
+    kp: 0.45                          # Proportional gain for steering control
+    kd: 1.2                           # Derivative gain for steering control
+    k_sigmoid: 8.0                    # Sigmoid steepness for velocity control
+    
+    # Topic Names
+    cmd_vel_topic: "/ackermann_cmd"   # Ackermann drive command topic
+    odometry_topic: "/odom"           # Odometry topic for vehicle pose
+    path_chooser_topic: "/path_chooser"  # Topic for switching between paths
+    astar_path_topic: "/astar_pp_path"   # A* path topic
+    joy_topic: "joy"                  # Joystick topic for manual tuning
+    gap_follower_toggle_topic: "/gap_follower_toggle"  # Gap follower toggle topic
+    pause_topic: "/pause"             # Emergency pause topic
+    
+    # Path Configuration
+    csv_path: "/home/ubuntu/giu_f1tenth_ws/software/src/planning/trajectory_planning/path/map_race_mod.csv"
+    is_antiClockwise: false           # Path direction (true for counter-clockwise)
+    is_solo: false                    # Solo driving mode flag
+    
+    # Timer and Processing Parameters
+    control_frequency: 200.0          # Control loop frequency in Hz (1/timer_period)
+    tf_timeout: 0.5                   # Transform lookup timeout in seconds
+    marker_resolution: 60             # Circle marker resolution for visualization
+    
+    # Queue Sizes
+    subscriber_queue_size: 10         # ROS subscriber queue size
+    publisher_queue_size: 10          # ROS publisher queue size
