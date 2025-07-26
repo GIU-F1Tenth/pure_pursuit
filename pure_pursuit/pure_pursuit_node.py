@@ -17,10 +17,9 @@ import csv
 import os
 from ackermann_msgs.msg import AckermannDriveStamped
 from visualization_msgs.msg import Marker
-from sensor_msgs.msg import Joy
 import numpy as np
 from tf2_ros import Buffer, TransformListener
-
+from pynput import keyboard
 
 def euler_from_quaternion(quaternion):
     """
@@ -68,7 +67,7 @@ class PurePursuit(Node):
         - Sigmoid-based velocity control for smooth cornering
         - Support for both racing and solo driving modes
         - Real-time path switching capability
-        - Joystick control for parameter tuning
+        - keyboard control for parameter tuning
         - Visualization markers for debugging
 
     Attributes:
@@ -103,7 +102,6 @@ class PurePursuit(Node):
         self.declare_parameter("astar_path_topic", "/astar_pp_path")
         self.declare_parameter("csv_path", "")
         self.declare_parameter("vel_division_factor", 1.0)
-        self.declare_parameter("joy_topic", "joy")
         self.declare_parameter(
             "gap_follower_toggle_topic", "/gap_follower_toggle")
         self.declare_parameter("pause_topic", "/pause")
@@ -144,8 +142,6 @@ class PurePursuit(Node):
             "is_solo").get_parameter_value().bool_value
         self.vel_division_factor = self.get_parameter(
             "vel_division_factor").get_parameter_value().double_value
-        self.joy_topic = self.get_parameter(
-            "joy_topic").get_parameter_value().string_value
         self.gap_follower_toggle_topic = self.get_parameter(
             "gap_follower_toggle_topic").get_parameter_value().string_value
         self.pause_topic = self.get_parameter(
@@ -174,8 +170,6 @@ class PurePursuit(Node):
             Bool, self.gap_follower_toggle_topic, self.toggle_algo_cb, self.queue_size)
         self.pause_sub = self.create_subscription(
             Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
-        self.joy_sub = self.create_subscription(
-            Joy, self.joy_topic, self.joy_callback, self.queue_size)
         # Initialize TF2 components
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -221,6 +215,12 @@ class PurePursuit(Node):
         if self.csv_path:
             self.get_logger().info(
                 f"Loaded path with {len(self.csv_race_path)} points")
+
+        listener = keyboard.Listener(
+            on_press=self.on_press,
+            on_release=self.on_release
+        )
+        listener.start()
 
     def publish_path(self, path):
         """
@@ -274,45 +274,49 @@ class PurePursuit(Node):
             self.is_active = True
             self.get_logger().info("Pure Pursuit activated")
 
-    def joy_callback(self, msg: Joy):
+    def on_press(self, key):
         """
-        Joystick callback for real-time parameter tuning during operation.
-
-        Button mapping:
-        - Y (button 3): Increase kd by 0.1
-        - A (button 1): Decrease kd by 0.1  
-        - B (button 2): Increase kp by 0.1
-        - X (button 0): Decrease kp by 0.1
-        - LB (button 4): Enable autonomous velocity control
-
+        Handle key press events for controlling the pure pursuit parameters.
+        This allows dynamic adjustment of controller parameters during runtime.
         Args:
-            msg (Joy): Joystick message containing button and axis states
+            key (Key): The key that was pressed
+            - d : Increase kd by 0.1
+            - x : Decrease kd by 0.1  
+            - b : Increase kp by 0.1
+            - z : Decrease kp by 0.1
+            - a : Enable autonomous velocity control
         """
-        # Y button - Increase derivative gain
-        if msg.buttons[3] == 1:
-            self.kd += 0.1
-            self.get_logger().info(f"kd increased to {self.kd:.2f}")
+        try:
+            if key.char == 'a':
+                self.activate_autonomous_vel = True 
+            if key.char == 'd':
+                self.kd += 0.1
+                self.get_logger().info(f"kd increased to {self.kd:.2f}")
+            if key.char == 'x':
+                self.kd -= 0.1
+                self.get_logger().info(f"kd decreased to {self.kd:.2f}")
+            if key.char == 'b':
+                self.kp += 0.1
+                self.get_logger().info(f"kp increased to {self.kp:.2f}")
+            if key.char == 'z':
+                self.kp -= 0.1
+                self.get_logger().info(f"kp decreased to {self.kp:.2f}")
+        except AttributeError:
+            self.get_logger().warn("error while sending.. :(")
 
-        # A button - Decrease derivative gain
-        if msg.buttons[1] == 1:
-            self.kd -= 0.1
-            self.get_logger().info(f"kd decreased to {self.kd:.2f}")
-
-        # B button - Increase proportional gain
-        if msg.buttons[2] == 1:
-            self.kp += 0.1
-            self.get_logger().info(f"kp increased to {self.kp:.2f}")
-
-        # X button - Decrease proportional gain
-        if msg.buttons[0] == 1:
-            self.kp -= 0.1
-            self.get_logger().info(f"kp decreased to {self.kp:.2f}")
-
-        # LB button - Toggle autonomous velocity control
-        if msg.buttons[4] == 1:
-            self.activate_autonomous_vel = True
-        else:
-            self.activate_autonomous_vel = False
+    def on_release(self, key):
+        """
+        Handle key release events to stop the robot or deactivate autonomous velocity control.
+        Args:
+            key (Key): The key that was released
+            - a (button 4): Disable autonomous velocity control
+            - esc: Stop the listener and exit
+        """
+        # Stop the robot when the key is released
+        self.activate_autonomous_vel = False
+        if key == keyboard.Key.esc:
+            # Stop listener
+            return False
 
     def load_path_from_csv(self, csv_path):
         """
@@ -403,7 +407,7 @@ class PurePursuit(Node):
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
                 'map',          # target_frame
-                'base_link',    # source_frame
+                'ego_racecar/base_link',    # source_frame
                 now,
                 timeout=rclpy.duration.Duration(seconds=self.tf_timeout)
             )
@@ -550,9 +554,12 @@ class PurePursuit(Node):
             if closest_point[2] > 0.0:  # Path has velocity information
                 ackermann.drive.speed = closest_point[2] / \
                     self.vel_division_factor
+                self.get_logger().info(f"path optimizer velocity: {ackermann.drive.speed}")
             else:  # Use sigmoid velocity control based on steering curvature
                 ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(
                     gamma) / self.vel_division_factor
+                self.get_logger().info(
+                    f"sigmoid velocity: {ackermann.drive.speed}")
 
         # Check if perpendicular distance is too large (off-track detection)
         perp_distance = self.perp_distance_car_frame_lookahead_point(
