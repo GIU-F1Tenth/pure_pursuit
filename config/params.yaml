@@ -7,7 +7,7 @@ pure_pursuit_node:
     # Velocity Control Parameters
     max_velocity: 4.7                 # Maximum allowed velocity in m/s
     min_velocity: 2.2                 # Minimum allowed velocity in m/s
-    vel_division_factor: 2.0          # Factor to reduce velocity commands
+    vel_division_factor: 1.0          # Factor to reduce velocity commands
     skidding_velocity_thresh: 0.3     # Velocity threshold to prevent skidding
     
     # Control Parameters
@@ -16,11 +16,13 @@ pure_pursuit_node:
     k_sigmoid: 8.0                    # Sigmoid steepness for velocity control
     
     # Topic Names
-    cmd_vel_topic: "/ackermann_cmd"   # Ackermann drive command topic
+    cmd_vel_topic: "/drive"   # Ackermann drive command topic
     odometry_topic: "/odom"           # Odometry topic for vehicle pose
     joy_topic: "/joy"                     # Joystick topic for manual tuning
     pause_topic: "/pause"                 # Emergency pause topic
-    path_topic: "/path"                   # Topic for the selected path
+    path_topic: "/pp_path"                   # Topic for the selected path
+    tf_target: "map"
+    tf_source: "base_link"
 
     # Timer and Processing Parameters
     control_frequency: 200.0              # Control loop frequency in Hz (1/timer_period)

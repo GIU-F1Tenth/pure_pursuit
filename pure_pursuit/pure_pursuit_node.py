@@ -106,6 +106,8 @@ class PurePursuit(Node):
         self.declare_parameter("marker_resolution", 60)
         self.declare_parameter("subscriber_queue_size", 10)
         self.declare_parameter("publisher_queue_size", 10)
+        self.declare_parameter("tf_target", "map")
+        self.declare_parameter("tf_source", "base_link")
 
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -144,6 +146,10 @@ class PurePursuit(Node):
             "subscriber_queue_size").get_parameter_value().integer_value)
         self.pub_queue_size = int(self.get_parameter(
             "publisher_queue_size").get_parameter_value().integer_value)
+        self.tf_target = self.get_parameter(
+            "tf_target").get_parameter_value().string_value
+        self.tf_source = self.get_parameter(
+            "tf_source").get_parameter_value().string_value
 
         # Initialize subscribers and publishers
         self.odom_sub = self.create_subscription(
@@ -151,7 +157,7 @@ class PurePursuit(Node):
         self.cmd_vel_pub = self.create_publisher(
             AckermannDriveStamped, self.cmd_vel_topic, self.pub_queue_size)
         self.path_sub = self.create_subscription(
-            String, self.path_topic, self.path_update_cb, self.queue_size)
+            Path, self.path_topic, self.path_update_cb, self.queue_size)
         self.pause_sub = self.create_subscription(
             Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
         self.joy_sub = self.create_subscription(
@@ -170,7 +176,6 @@ class PurePursuit(Node):
 
         # Control state variables
         self.stop = False
-        self.is_active = True
         self.activate_autonomous_vel = False
         self.prev_gamma = 0.0
         self.lookahead_distance = 0.0
@@ -184,8 +189,6 @@ class PurePursuit(Node):
             Marker, "/lookahead_marker", self.pub_queue_size)
         self.lookahead_circle_pub = self.create_publisher(
             Marker, "/lookahead_circle", self.pub_queue_size)
-        self.csv_path_publisher = self.create_publisher(
-            Path, "/csv_pp_path", self.pub_queue_size)
 
         self.get_logger().info("Pure Pursuit Node initialized successfully")
         self.get_logger().info(
@@ -275,8 +278,8 @@ class PurePursuit(Node):
         try:
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
-                'map',          # target_frame
-                'base_link',    # source_frame
+                self.tf_target,          # target_frame
+                self.tf_source,    # source_frame
                 now,
                 timeout=rclpy.duration.Duration(seconds=self.tf_timeout)
             )
@@ -419,7 +422,7 @@ class PurePursuit(Node):
         ackermann.header.frame_id = 'base_link'
 
         # Determine velocity based on autonomous mode and path information
-        if self.activate_autonomous_vel and self.is_active and not self.stop:
+        if self.activate_autonomous_vel and not self.stop:
             if closest_point[2] > 0.0:  # Path has velocity information
                 ackermann.drive.speed = closest_point[2] / \
                     self.vel_division_factor
