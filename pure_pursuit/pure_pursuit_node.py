@@ -190,11 +190,6 @@ class PurePursuit(Node):
         self.get_logger().info("Pure Pursuit Node initialized successfully")
         self.get_logger().info(
             f"Control frequency: {self.control_frequency} Hz")
-        self.get_logger().info(f"Solo mode: {self.is_solo}")
-        self.get_logger().info(f"Anti-clockwise: {self.is_antiClockwise}")
-        if self.csv_path:
-            self.get_logger().info(
-                f"Loaded path with {len(self.csv_race_path)} points")
 
     def toggle_stop_cb(self, msg: Bool):
         """
