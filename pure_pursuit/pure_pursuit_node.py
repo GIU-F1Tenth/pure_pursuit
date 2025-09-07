@@ -93,19 +93,13 @@ class PurePursuit(Node):
         self.declare_parameter("min_velocity", 0.0)
         self.declare_parameter("cmd_vel_topic", "/ackermann_cmd")
         self.declare_parameter("odometry_topic", "/odom")
+        self.declare_parameter("path_topic", "/path")
         self.declare_parameter("kp", 0.0)
         self.declare_parameter("kd", 0.0)
-        self.declare_parameter("is_antiClockwise", True)
-        self.declare_parameter("is_solo", True)
         self.declare_parameter("k_sigmoid", 8.0)
-        self.declare_parameter("path_chooser_topic", "/path_chooser")
         self.declare_parameter("skidding_velocity_thresh", 0.0)
-        self.declare_parameter("astar_path_topic", "/astar_pp_path")
-        self.declare_parameter("csv_path", "")
         self.declare_parameter("vel_division_factor", 1.0)
-        self.declare_parameter("joy_topic", "joy")
-        self.declare_parameter(
-            "gap_follower_toggle_topic", "/gap_follower_toggle")
+        self.declare_parameter("joy_topic", "/joy")
         self.declare_parameter("pause_topic", "/pause")
         self.declare_parameter("control_frequency", 200.0)
         self.declare_parameter("tf_timeout", 0.5)
@@ -128,26 +122,16 @@ class PurePursuit(Node):
             "cmd_vel_topic").get_parameter_value().string_value
         self.odom_topic = self.get_parameter(
             "odometry_topic").get_parameter_value().string_value
-        self.is_antiClockwise = self.get_parameter(
-            "is_antiClockwise").get_parameter_value().bool_value
+        self.path_topic = self.get_parameter(
+            "path_topic").get_parameter_value().string_value
         self.k_sigmoid = self.get_parameter(
             "k_sigmoid").get_parameter_value().double_value
-        self.path_chooser_topic = self.get_parameter(
-            "path_chooser_topic").get_parameter_value().string_value
         self.skidding_velocity_thresh = self.get_parameter(
             "skidding_velocity_thresh").get_parameter_value().double_value
-        self.astar_path_topic = self.get_parameter(
-            "astar_path_topic").get_parameter_value().string_value
-        self.csv_path = self.get_parameter(
-            "csv_path").get_parameter_value().string_value
-        self.is_solo = self.get_parameter(
-            "is_solo").get_parameter_value().bool_value
         self.vel_division_factor = self.get_parameter(
             "vel_division_factor").get_parameter_value().double_value
         self.joy_topic = self.get_parameter(
             "joy_topic").get_parameter_value().string_value
-        self.gap_follower_toggle_topic = self.get_parameter(
-            "gap_follower_toggle_topic").get_parameter_value().string_value
         self.pause_topic = self.get_parameter(
             "pause_topic").get_parameter_value().string_value
         self.control_frequency = self.get_parameter(
@@ -167,11 +151,7 @@ class PurePursuit(Node):
         self.cmd_vel_pub = self.create_publisher(
             AckermannDriveStamped, self.cmd_vel_topic, self.pub_queue_size)
         self.path_sub = self.create_subscription(
-            String, self.path_chooser_topic, self.path_update_cb, self.queue_size)
-        self.astar_path_sub = self.create_subscription(
-            Path, self.astar_path_topic, self.astar_path_cb, self.queue_size)
-        self.gap_follower_toggle_sub = self.create_subscription(
-            Bool, self.gap_follower_toggle_topic, self.toggle_algo_cb, self.queue_size)
+            String, self.path_topic, self.path_update_cb, self.queue_size)
         self.pause_sub = self.create_subscription(
             Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
         self.joy_sub = self.create_subscription(
@@ -196,14 +176,8 @@ class PurePursuit(Node):
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
 
-        # Load and configure the racing path
-        if self.csv_path:
-            self.csv_race_path = self.load_path_from_csv(self.csv_path)
-            if self.is_antiClockwise:
-                self.csv_race_path.reverse()
-
-        # Set initial path based on mode
-        self.path = self.csv_race_path if self.is_solo else []
+        # Set initial path
+        self.path = []
 
         # Initialize visualization publishers
         self.lookahead_marker_pub = self.create_publisher(
@@ -222,30 +196,6 @@ class PurePursuit(Node):
             self.get_logger().info(
                 f"Loaded path with {len(self.csv_race_path)} points")
 
-    def publish_path(self, path):
-        """
-        Publish the current path as a ROS Path message for visualization.
-
-        Args:
-            path (list): List of (x, y, velocity) tuples representing the path
-        """
-        path_msg = Path()
-        path_msg.header.stamp = self.get_clock().now().to_msg()
-        path_msg.header.frame_id = 'map'
-
-        for current_point in path:
-            x, y, v = current_point
-            pose = PoseStamped()
-            pose.header.stamp = self.get_clock().now().to_msg()
-            pose.header.frame_id = 'map'
-            pose.pose.position.x = x
-            pose.pose.position.y = y
-            pose.pose.position.z = 0.0
-            pose.pose.orientation.w = 0.0  # No rotation
-            path_msg.poses.append(pose)
-
-        self.csv_path_publisher.publish(path_msg)
-
     def toggle_stop_cb(self, msg: Bool):
         """
         Emergency stop callback to pause/resume the controller.
@@ -259,20 +209,6 @@ class PurePursuit(Node):
         else:
             self.stop = False
             self.get_logger().info("Pure Pursuit resumed")
-
-    def toggle_algo_cb(self, msg: Bool):
-        """
-        Toggle between pure pursuit and gap follower algorithms.
-
-        Args:
-            msg (Bool): True to deactivate pure pursuit, False to activate
-        """
-        if msg.data:
-            self.is_active = False
-            self.get_logger().info("Pure Pursuit deactivated - Gap follower active")
-        else:
-            self.is_active = True
-            self.get_logger().info("Pure Pursuit activated")
 
     def joy_callback(self, msg: Joy):
         """
@@ -314,79 +250,21 @@ class PurePursuit(Node):
         else:
             self.activate_autonomous_vel = False
 
-    def load_path_from_csv(self, csv_path):
-        """
-        Load a racing path from a CSV file.
-
-        Expected CSV format: x, y, velocity (one point per line)
-
-        Args:
-            csv_path (str): Path to the CSV file containing waypoints
-
-        Returns:
-            list: List of (x, y, velocity) tuples representing the path
-
-        Raises:
-            FileNotFoundError: If the CSV file doesn't exist
-            ValueError: If the CSV format is incorrect
-        """
-        path = []
-        try:
-            with open(csv_path, newline='') as csvfile:
-                reader = csv.reader(csvfile)
-                for row in reader:
-                    if len(row) >= 3:
-                        x, y, v = float(row[0]), float(row[1]), float(row[2])
-                        path.append((x, y, v))
-                    else:
-                        self.get_logger().warn(
-                            f"Invalid CSV row format: {row}")
-        except FileNotFoundError:
-            self.get_logger().error(f"CSV file not found: {csv_path}")
-            return []
-        except Exception as e:
-            self.get_logger().error(f"Error loading CSV file: {e}")
-            return []
-
-        self.get_logger().info(
-            f"Loaded path from {csv_path} with {len(path)} points")
-        return path
-
-    def astar_path_cb(self, msg: Path):
-        """
-        Callback for receiving A* generated paths.
-
-        Args:
-            msg (Path): ROS Path message containing A* waypoints
-        """
-        self.astar_path.clear()
-        for pose in msg.poses:
-            x = pose.pose.position.x
-            y = pose.pose.position.y
-            v = pose.pose.orientation.w  # Velocity stored in orientation.w
-            self.astar_path.append((x, y, v))
-
-        if self.is_antiClockwise:
-            self.astar_path.reverse()
-
-        self.get_logger().info(
-            f"A* path updated with {len(self.astar_path)} points")
-
-    def path_update_cb(self, msg: String):
+    def path_update_cb(self, msg: Path):
         """
         Callback for switching between different path sources.
 
         Args:
             msg (String): Path source identifier ("astar_path" or "csv_race_path")
         """
-        if msg.data == "astar_path":
-            self.path = self.astar_path
-            self.get_logger().info("Switched to A* path")
-        elif msg.data == "csv_race_path":
-            self.path = self.csv_race_path
-            self.get_logger().info("Switched to CSV race path")
-        else:
-            self.get_logger().warn(f"Unknown path type: {msg.data}")
+        self.path = []
+        for pose in msg.poses:
+            x = pose.pose.position.x
+            y = pose.pose.position.y
+            v = pose.pose.orientation.w  # Velocity stored in orientation.w
+            self.path.append((x, y, v))
+
+        self.get_logger().info(f"Path updated with {len(self.path)} points")
 
     def get_pose(self):
         """

@@ -20,15 +20,12 @@ pure_pursuit_node:
     odometry_topic: "/odom"           # Odometry topic for vehicle pose
     joy_topic: "/joy"                     # Joystick topic for manual tuning
     pause_topic: "/pause"                 # Emergency pause topic
+    path_topic: "/path"                   # Topic for the selected path
 
-    # Path Configuration
-    csv_path: "path/to/your/csvfile"
-    is_antiClockwise: false               # Path direction (true for counter-clockwise)
-    
     # Timer and Processing Parameters
-    control_frequency: 200.0          # Control loop frequency in Hz (1/timer_period)
-    tf_timeout: 0.5                   # Transform lookup timeout in seconds
-    marker_resolution: 60             # Circle marker resolution for visualization
+    control_frequency: 200.0              # Control loop frequency in Hz (1/timer_period)
+    tf_timeout: 0.5                       # Transform lookup timeout in seconds
+    marker_resolution: 60                 # Circle marker resolution for visualization
     
     # Queue Sizes
     subscriber_queue_size: 10         # ROS subscriber queue size
