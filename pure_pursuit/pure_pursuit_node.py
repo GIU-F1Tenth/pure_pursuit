@@ -176,7 +176,7 @@ class PurePursuit(Node):
 
         # Control state variables
         self.stop = False
-        self.activate_autonomous_vel = False
+        self.activate_autonomous_vel = True
         self.prev_gamma = 0.0
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
