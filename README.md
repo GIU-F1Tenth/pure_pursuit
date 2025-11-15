@@ -27,14 +27,14 @@ A professional ROS2 implementation of the Pure Pursuit path following algorithm,
 - **Adaptive Lookahead**: Dynamic lookahead distance based on current vehicle velocity
 - **PID Steering Control**: Configurable proportional and derivative gains for precise steering
 - **Sigmoid Velocity Control**: Smooth velocity transitions based on path curvature
-- **Path Switching**: Runtime switching between CSV paths and A* generated paths
-- **Emergency Controls**: Safety features including emergency stop and algorithm toggling
+- **Path Following**: Subscribes to Path messages for real-time path updates
+- **Emergency Controls**: Safety features including emergency stop and pause functionality
 
 ### Advanced Features
 - **Anti-skidding Control**: Velocity smoothing to prevent wheel skidding
 - **Real-time Parameter Tuning**: Joystick-based parameter adjustment during operation
 - **Visualization Support**: RViz markers for debugging and monitoring
-- **Dual Mode Support**: Separate configurations for racing and solo time trials
+- **Transform Integration**: Uses TF2 for robust coordinate frame transformations
 - **Robust Error Handling**: Comprehensive error checking and recovery mechanisms
 
 ## Installation
@@ -71,14 +71,9 @@ source install/setup.bash
 
 ### Quick Start
 
-#### Racing Mode (Multi-car)
+#### Launch Pure Pursuit Controller
 ```bash
 ros2 launch pure_pursuit pure_pursuit.launch.py
-```
-
-#### Solo Mode (Time Trial)
-```bash
-ros2 launch pure_pursuit pure_pursuit_solo.launch.py
 ```
 
 ### Manual Launch with Custom Parameters
@@ -107,25 +102,27 @@ During operation, you can tune parameters in real-time using a joystick:
 | `kp` | double | 0.45 | Proportional steering gain |
 | `kd` | double | 1.2 | Derivative steering gain |
 | `k_sigmoid` | double | 8.0 | Sigmoid steepness for velocity control |
-| `vel_division_factor` | double | 2.0 | Velocity reduction factor |
+| `vel_division_factor` | double | 1.0 | Velocity reduction factor |
 | `skidding_velocity_thresh` | double | 0.3 | Anti-skidding threshold |
-
-### Path Configuration
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `csv_path` | string | "" | Path to CSV waypoint file |
-| `is_antiClockwise` | bool | false | Reverse path direction |
-| `is_solo` | bool | false | Enable solo racing mode |
+| `control_frequency` | double | 200.0 | Control loop frequency (Hz) |
 
 ### Topic Configuration
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `cmd_vel_topic` | string | "/ackermann_cmd" | Ackermann command output |
+| `cmd_vel_topic` | string | "/drive" | Ackermann command output |
 | `odometry_topic` | string | "/odom" | Odometry input |
-| `path_chooser_topic` | string | "/path_chooser" | Path switching control |
-| `astar_path_topic` | string | "/astar_pp_path" | A* path input |
+| `path_topic` | string | "/pp_path" | Path input topic |
+| `joy_topic` | string | "/joy" | Joystick input |
+| `pause_topic` | string | "/pause" | Emergency pause control |
+
+### Transform Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tf_target` | string | "map" | Target coordinate frame |
+| `tf_source` | string | "base_link" | Source coordinate frame |
+| `tf_timeout` | double | 0.5 | Transform timeout (seconds) |
 
 ## Topics
 
@@ -134,28 +131,22 @@ During operation, you can tune parameters in real-time using a joystick:
 | Topic | Type | Description |
 |-------|------|-------------|
 | `/odom` | `nav_msgs/Odometry` | Vehicle odometry data |
-| `/path_chooser` | `std_msgs/String` | Path source selection |
-| `/astar_pp_path` | `nav_msgs/Path` | A* generated path |
-| `/gap_follower_toggle` | `std_msgs/Bool` | Algorithm toggle |
-| `/pause` | `std_msgs/Bool` | Emergency stop |
-| `joy` | `sensor_msgs/Joy` | Joystick input |
+| `/pp_path` | `nav_msgs/Path` | Path to follow |
+| `/pause` | `std_msgs/Bool` | Emergency pause control |
+| `/joy` | `sensor_msgs/Joy` | Joystick input |
 
 ### Published Topics
 
 | Topic | Type | Description |
 |-------|------|-------------|
-| `/ackermann_cmd` | `ackermann_msgs/AckermannDriveStamped` | Vehicle control commands |
+| `/drive` | `ackermann_msgs/AckermannDriveStamped` | Vehicle control commands |
 | `/lookahead_marker` | `visualization_msgs/Marker` | Lookahead point visualization |
 | `/lookahead_circle` | `visualization_msgs/Marker` | Lookahead circle visualization |
-| `/csv_pp_path` | `nav_msgs/Path` | Current path visualization |
 
 ## Launch Files
 
 ### `pure_pursuit.launch.py`
-Main launch file for racing mode with multi-car racing parameters.
-
-### `pure_pursuit_solo.launch.py`
-Launch file for solo time trial mode with aggressive parameters optimized for single-car performance.
+Main launch file that starts the pure pursuit controller with parameters loaded from `config/params.yaml`.
 
 ## Visualization
 
@@ -163,14 +154,11 @@ The controller provides comprehensive RViz visualization:
 
 1. **Lookahead Point**: Red sphere marker showing the current target point
 2. **Lookahead Circle**: Green circle showing the adaptive lookahead radius
-3. **Path Visualization**: Current active path displayed as a line strip
-4. **Vehicle Odometry**: Real-time vehicle position and orientation
 
 ### RViz Setup
 Add these displays in RViz:
 - Marker display for `/lookahead_marker`
 - Marker display for `/lookahead_circle`  
-- Path display for `/csv_pp_path`
 - Odometry display for `/odom`
 
 Set the fixed frame to `map`.
@@ -179,24 +167,24 @@ Set the fixed frame to `map`.
 
 ### Simulation Testing
 1. Launch your F1TENTH simulator
-2. Load a racing track and path
-3. Start the pure pursuit controller:
+2. Start the pure pursuit controller:
 ```bash
 ros2 launch pure_pursuit pure_pursuit.launch.py
 ```
+3. Publish a path to `/pp_path` topic
 4. Enable autonomous mode via joystick or topic
 
 ### Real Vehicle Testing
 1. Ensure all sensors are calibrated
-2. Load the appropriate path file
-3. Start with conservative parameters
+2. Start the controller with appropriate parameters
+3. Publish a path to the `/pp_path` topic
 4. Gradually tune parameters using joystick controls
 
 ### Debugging Tips
 - Monitor console output for parameter changes and warnings
 - Use RViz visualization to verify lookahead calculations
 - Check TF transforms are available between `map` and `base_link`
-- Verify path file format: `x, y, velocity` per line
+- Verify path messages contain proper pose and velocity information
 
 ## Contributing
 
@@ -224,7 +212,6 @@ This repository is actively maintained by:
 
 - **Fam Shihata** - [fam@awadlouis.com](mailto:fam@awadlouis.com)
 - **George Halim** - [georgehany064@gmail.com](mailto:georgehany064@gmail.com)
-- **Karim Shousha**
 
 ### Support
 
