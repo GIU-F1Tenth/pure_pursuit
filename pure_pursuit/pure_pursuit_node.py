@@ -20,6 +20,7 @@ from visualization_msgs.msg import Marker
 from sensor_msgs.msg import Joy
 import numpy as np
 from tf2_ros import Buffer, TransformListener
+from std_msgs.msg import Float64
 
 
 def euler_from_quaternion(quaternion):
@@ -108,6 +109,8 @@ class PurePursuit(Node):
         self.declare_parameter("publisher_queue_size", 10)
         self.declare_parameter("tf_target", "map")
         self.declare_parameter("tf_source", "base_link")
+        self.declare_parameter("enable_speed_capping", True)
+        self.declare_parameter("speed_capping_topic", "/speed_cap")
 
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -150,7 +153,12 @@ class PurePursuit(Node):
             "tf_target").get_parameter_value().string_value
         self.tf_source = self.get_parameter(
             "tf_source").get_parameter_value().string_value
-
+        self.speed_capping_enabled = self.get_parameter(
+            "enable_speed_capping").get_parameter_value().bool_value
+        self.speed_capping_topic = self.get_parameter(
+            "speed_capping_topic").get_parameter_value().string_value
+        self.target_velocity = -1.0 
+        
         # Initialize subscribers and publishers
         self.odom_sub = self.create_subscription(
             Odometry, self.odom_topic, self.odom_callback, self.queue_size)
@@ -162,6 +170,9 @@ class PurePursuit(Node):
             Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
         self.joy_sub = self.create_subscription(
             Joy, self.joy_topic, self.joy_callback, self.queue_size)
+        if self.speed_capping_enabled:
+            self.speed_cap_sub = self.create_subscription(
+                Float64, self.speed_capping_topic, self.speed_cap_callback, self.queue_size)
         # Initialize TF2 components
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -193,6 +204,17 @@ class PurePursuit(Node):
         self.get_logger().info("Pure Pursuit Node initialized successfully")
         self.get_logger().info(
             f"Control frequency: {self.control_frequency} Hz")
+    
+    def speed_cap_callback(self, msg: Float64):
+        """
+        Callback to update the maximum speed cap dynamically.
+
+        Args:
+            msg (Float64): New maximum velocity
+        """
+        self.target_velocity = msg.data
+        self.get_logger().info(f"Updated max velocity to {self.target_velocity:.2f} m/s", throttle_duration_sec=5.0)
+
 
     def toggle_stop_cb(self, msg: Bool):
         """
@@ -347,6 +369,9 @@ class PurePursuit(Node):
         Returns:
             float: Smoothed velocity command
         """
+        if self.target_velocity != -1.0:
+            target_vel = min(target_vel, self.target_velocity)
+            
         vel = target_vel
         if (target_vel - curr_vel) > self.skidding_velocity_thresh:
             vel = self.skidding_velocity_thresh + curr_vel

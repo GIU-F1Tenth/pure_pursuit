@@ -32,3 +32,7 @@ pure_pursuit_node:
     # Queue Sizes
     subscriber_queue_size: 10         # ROS subscriber queue size
     publisher_queue_size: 10          # ROS publisher queue size
+
+    # Speed capping 
+    enable_speed_capping: true         # Enable or disable speed capping
+    speed_capping_topic: "/speed_capping"  # Topic to receive speed capping commands
