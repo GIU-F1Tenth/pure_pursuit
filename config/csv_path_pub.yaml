@@ -1,0 +1,16 @@
+csv_path_pub:
+  ros__parameters:
+    # Topic name for publishing the path
+    path_topic: "/tmp/csv_pp_path"
+
+    # Path to the CSV file containing waypoints
+    csv_path: "/home/fam/Desktop/F1Tenth/Repos/trajectory_planning/path/cluj_napoca_berlin_out.csv"
+
+    # Speed multiplication factor
+    speed_factor: 1.01
+
+    # Frame ID for the path
+    frame_id: "map"
+
+    # Logging parameters
+    log_level: "INFO"
