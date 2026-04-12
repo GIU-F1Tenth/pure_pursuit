@@ -99,7 +99,6 @@ class PurePursuit(Node):
         self.declare_parameter("kd", 0.0)
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("skidding_velocity_thresh", 0.0)
-        self.declare_parameter("vel_division_factor", 1.0)
         self.declare_parameter("joy_topic", "/joy")
         self.declare_parameter("pause_topic", "/pause")
         self.declare_parameter("control_frequency", 200.0)
@@ -111,6 +110,7 @@ class PurePursuit(Node):
         self.declare_parameter("tf_source", "base_link")
         self.declare_parameter("enable_speed_capping", True)
         self.declare_parameter("speed_capping_topic", "/speed_cap")
+        self.declare_parameter("inverse", False)
 
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -133,8 +133,6 @@ class PurePursuit(Node):
             "k_sigmoid").get_parameter_value().double_value
         self.skidding_velocity_thresh = self.get_parameter(
             "skidding_velocity_thresh").get_parameter_value().double_value
-        self.vel_division_factor = self.get_parameter(
-            "vel_division_factor").get_parameter_value().double_value
         self.joy_topic = self.get_parameter(
             "joy_topic").get_parameter_value().string_value
         self.pause_topic = self.get_parameter(
@@ -158,6 +156,7 @@ class PurePursuit(Node):
         self.speed_capping_topic = self.get_parameter(
             "speed_capping_topic").get_parameter_value().string_value
         self.target_velocity = -1.0 
+        self.inverse = self.get_parameter("inverse").get_parameter_value().bool_value
         
         # Initialize subscribers and publishers
         self.odom_sub = self.create_subscription(
@@ -285,6 +284,9 @@ class PurePursuit(Node):
             self.path.append((x, y, v))
 
         self.get_logger().info(f"Path updated with {len(self.path)} points")
+        if self.inverse: 
+            self.path = self.path[::-1]
+            self.get_logger().info("Inverted the path")
 
     def get_pose(self):
         """
@@ -449,11 +451,10 @@ class PurePursuit(Node):
         # Determine velocity based on autonomous mode and path information
         if self.activate_autonomous_vel and not self.stop:
             if closest_point[2] > 0.0:  # Path has velocity information
-                ackermann.drive.speed = closest_point[2] / \
-                    self.vel_division_factor
+                ackermann.drive.speed = closest_point[2] 
             else:  # Use sigmoid velocity control based on steering curvature
                 ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(
-                    gamma) / self.vel_division_factor
+                    gamma)
 
         # Check if perpendicular distance is too large (off-track detection)
         perp_distance = self.perp_distance_car_frame_lookahead_point(
