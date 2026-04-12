@@ -60,7 +60,7 @@ class PathPublisher(Node):
         # Create publisher and load/publish path
         self.path_publisher = self.create_publisher(Path, self.path_topic, 10)
         self.path = self.load_path_from_csv(self.csv_path)
-        for i in range(10):
+        for i in range(100):
             self.publish_path()
 
     def load_path_from_csv(self, csv_path):
@@ -100,9 +100,8 @@ class PathPublisher(Node):
             pose.pose.position.y = point[1]
             pose.pose.orientation.w = point[2] * self.speed_factor  # velocity
             path_msg.poses.append(pose)
-            self.get_logger().info(f"Appended point {idx + 1}")
 
-        self.get_logger().info("The path is loaded ..")
+        # self.get_logger().info("The path is loaded ..")
         self.path_publisher.publish(path_msg)
 
 
