@@ -25,7 +25,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
-            "pure_pursuit_node = pure_pursuit.pure_pursuit_node:main"
+            "pure_pursuit_node = pure_pursuit.pure_pursuit_node:main",
             "csv_path_pub = pure_pursuit.csv_path_publisher:main"
         ],
     },
