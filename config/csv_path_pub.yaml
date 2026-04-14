@@ -14,3 +14,5 @@ csv_path_pub:
 
     # Logging parameters
     log_level: "INFO"
+
+    inverse: false

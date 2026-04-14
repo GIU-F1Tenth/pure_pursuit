@@ -42,6 +42,7 @@ class PathPublisher(Node):
         self.declare_parameter("speed_factor", 1.0)
         self.declare_parameter("frame_id", "map")
         self.declare_parameter("log_level", "INFO")
+        self.declare_parameter("inverse", False)
 
         # Get parameter values
         self.csv_path = (
@@ -51,15 +52,22 @@ class PathPublisher(Node):
             self.get_parameter("path_topic").get_parameter_value().string_value
         )
         self.speed_factor = (
-            self.get_parameter("speed_factor").get_parameter_value().double_value
+            self.get_parameter(
+                "speed_factor").get_parameter_value().double_value
         )
         self.frame_id = (
             self.get_parameter("frame_id").get_parameter_value().string_value
         )
+        self.inverse = self.get_parameter(
+            "inverse").get_parameter_value().bool_value
 
         # Create publisher and load/publish path
         self.path_publisher = self.create_publisher(Path, self.path_topic, 10)
         self.path = self.load_path_from_csv(self.csv_path)
+
+        if self.inverse:
+            self.path = self.path[::-1]
+
         for i in range(100):
             self.publish_path()
 
