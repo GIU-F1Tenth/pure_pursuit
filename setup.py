@@ -9,7 +9,8 @@ setup(
     version="1.1.2",
     packages=[package_name],
     data_files=[
-        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
+        ("share/ament_index/resource_index/packages",
+         ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         # Include all launch files
         (os.path.join("share", package_name, "launch"), glob("launch/*.py")),
@@ -26,7 +27,6 @@ setup(
     entry_points={
         "console_scripts": [
             "pure_pursuit_node = pure_pursuit.pure_pursuit_node:main",
-            "csv_path_pub = pure_pursuit.csv_path_publisher:main"
         ],
     },
 )
