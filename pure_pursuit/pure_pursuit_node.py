@@ -261,7 +261,7 @@ class PurePursuit(Node):
         Args:
             msg (String): Message indicating the selected control mode
         """
-        if msg.data == "pure_pursuit":
+        if "pure_pursuit" in msg.data:
             self.activate_autonomous_vel = True
         else:
             self.activate_autonomous_vel = False
