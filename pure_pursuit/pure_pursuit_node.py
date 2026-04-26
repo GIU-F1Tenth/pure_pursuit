@@ -100,7 +100,7 @@ class PurePursuit(Node):
         self.declare_parameter("k_sigmoid", 8.0)
         self.declare_parameter("skidding_velocity_thresh", 0.0)
         self.declare_parameter("joy_topic", "/joy")
-        self.declare_parameter("pause_topic", "/pause")
+        self.declare_parameter("pause_topic", "/control_selector")
         self.declare_parameter("control_frequency", 200.0)
         self.declare_parameter("tf_timeout", 0.5)
         self.declare_parameter("marker_resolution", 60)
@@ -115,63 +115,113 @@ class PurePursuit(Node):
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
-        self.max_velocity = self.get_parameter(
-            "max_velocity").get_parameter_value().double_value
-        self.min_velocity = self.get_parameter(
-            "min_velocity").get_parameter_value().double_value
-        self.min_lad = self.get_parameter(
-            "min_lookahead_distance").get_parameter_value().double_value
-        self.max_lad = self.get_parameter(
-            "max_lookahead_distance").get_parameter_value().double_value
-        self.cmd_vel_topic = self.get_parameter(
-            "cmd_vel_topic").get_parameter_value().string_value
-        self.odom_topic = self.get_parameter(
-            "odometry_topic").get_parameter_value().string_value
-        self.path_topic = self.get_parameter(
-            "path_topic").get_parameter_value().string_value
-        self.k_sigmoid = self.get_parameter(
-            "k_sigmoid").get_parameter_value().double_value
-        self.skidding_velocity_thresh = self.get_parameter(
-            "skidding_velocity_thresh").get_parameter_value().double_value
-        self.joy_topic = self.get_parameter(
-            "joy_topic").get_parameter_value().string_value
-        self.pause_topic = self.get_parameter(
-            "pause_topic").get_parameter_value().string_value
-        self.control_frequency = self.get_parameter(
-            "control_frequency").get_parameter_value().double_value
-        self.tf_timeout = self.get_parameter(
-            "tf_timeout").get_parameter_value().double_value
-        self.marker_resolution = int(self.get_parameter(
-            "marker_resolution").get_parameter_value().integer_value)
-        self.queue_size = int(self.get_parameter(
-            "subscriber_queue_size").get_parameter_value().integer_value)
-        self.pub_queue_size = int(self.get_parameter(
-            "publisher_queue_size").get_parameter_value().integer_value)
-        self.tf_target = self.get_parameter(
-            "tf_target").get_parameter_value().string_value
-        self.tf_source = self.get_parameter(
-            "tf_source").get_parameter_value().string_value
-        self.speed_capping_enabled = self.get_parameter(
-            "enable_speed_capping").get_parameter_value().bool_value
-        self.speed_capping_topic = self.get_parameter(
-            "speed_capping_topic").get_parameter_value().string_value
-        self.target_velocity = -1.0 
+        self.max_velocity = (
+            self.get_parameter("max_velocity").get_parameter_value().double_value
+        )
+        self.min_velocity = (
+            self.get_parameter("min_velocity").get_parameter_value().double_value
+        )
+        self.min_lad = (
+            self.get_parameter("min_lookahead_distance")
+            .get_parameter_value()
+            .double_value
+        )
+        self.max_lad = (
+            self.get_parameter("max_lookahead_distance")
+            .get_parameter_value()
+            .double_value
+        )
+        self.cmd_vel_topic = (
+            self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
+        )
+        self.odom_topic = (
+            self.get_parameter("odometry_topic").get_parameter_value().string_value
+        )
+        self.path_topic = (
+            self.get_parameter("path_topic").get_parameter_value().string_value
+        )
+        self.k_sigmoid = (
+            self.get_parameter("k_sigmoid").get_parameter_value().double_value
+        )
+        self.skidding_velocity_thresh = (
+            self.get_parameter("skidding_velocity_thresh")
+            .get_parameter_value()
+            .double_value
+        )
+        self.joy_topic = (
+            self.get_parameter("joy_topic").get_parameter_value().string_value
+        )
+        self.pause_topic = (
+            self.get_parameter("pause_topic").get_parameter_value().string_value
+        )
+        self.control_frequency = (
+            self.get_parameter("control_frequency").get_parameter_value().double_value
+        )
+        self.tf_timeout = (
+            self.get_parameter("tf_timeout").get_parameter_value().double_value
+        )
+        self.marker_resolution = int(
+            self.get_parameter("marker_resolution").get_parameter_value().integer_value
+        )
+        self.queue_size = int(
+            self.get_parameter("subscriber_queue_size")
+            .get_parameter_value()
+            .integer_value
+        )
+        self.pub_queue_size = int(
+            self.get_parameter("publisher_queue_size")
+            .get_parameter_value()
+            .integer_value
+        )
+        self.tf_target = (
+            self.get_parameter("tf_target").get_parameter_value().string_value
+        )
+        self.tf_source = (
+            self.get_parameter("tf_source").get_parameter_value().string_value
+        )
+        self.speed_capping_enabled = (
+            self.get_parameter("enable_speed_capping").get_parameter_value().bool_value
+        )
+        self.speed_capping_topic = (
+            self.get_parameter("speed_capping_topic").get_parameter_value().string_value
+        )
+        self.target_velocity = -1.0
         self.inverse = self.get_parameter("inverse").get_parameter_value().bool_value
-        
+        self.control_selector_topic = (
+            self.get_parameter("control_selector_topic")
+            .get_parameter_value()
+            .string_value
+        )
+
         # Initialize subscribers and publishers
         self.odom_sub = self.create_subscription(
-            Odometry, self.odom_topic, self.odom_callback, self.queue_size)
+            Odometry, self.odom_topic, self.odom_callback, self.queue_size
+        )
         self.cmd_vel_pub = self.create_publisher(
-            AckermannDriveStamped, self.cmd_vel_topic, self.pub_queue_size)
+            AckermannDriveStamped, self.cmd_vel_topic, self.pub_queue_size
+        )
         self.path_sub = self.create_subscription(
-            Path, self.path_topic, self.path_update_cb, self.queue_size)
+            Path, self.path_topic, self.path_update_cb, self.queue_size
+        )
         self.pause_sub = self.create_subscription(
-            Bool, self.pause_topic, self.toggle_stop_cb, self.queue_size)
+            String, self.pause_topic, self.toggle_stop_cb, self.queue_size
+        )
         self.joy_sub = self.create_subscription(
-            Joy, self.joy_topic, self.joy_callback, self.queue_size)
+            Joy, self.joy_topic, self.joy_callback, self.queue_size
+        )
+        self.control_selector_sub = self.create_subscription(
+            String,
+            self.control_selector_topic,
+            self.control_selector_callback,
+            self.queue_size,
+        )
         if self.speed_capping_enabled:
             self.speed_cap_sub = self.create_subscription(
-                Float64, self.speed_capping_topic, self.speed_cap_callback, self.queue_size)
+                Float64,
+                self.speed_capping_topic,
+                self.speed_cap_callback,
+                self.queue_size,
+            )
         # Initialize TF2 components
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -185,8 +235,7 @@ class PurePursuit(Node):
         self.astar_path = []
 
         # Control state variables
-        self.stop = False
-        self.activate_autonomous_vel = True
+        self.activate_autonomous_vel = False
         self.prev_gamma = 0.0
         self.lookahead_distance = 0.0
         self.odometry = Odometry()
@@ -196,14 +245,15 @@ class PurePursuit(Node):
 
         # Initialize visualization publishers
         self.lookahead_marker_pub = self.create_publisher(
-            Marker, "/lookahead_marker", self.pub_queue_size)
+            Marker, "/lookahead_marker", self.pub_queue_size
+        )
         self.lookahead_circle_pub = self.create_publisher(
-            Marker, "/lookahead_circle", self.pub_queue_size)
+            Marker, "/lookahead_circle", self.pub_queue_size
+        )
 
         self.get_logger().info("Pure Pursuit Node initialized successfully")
-        self.get_logger().info(
-            f"Control frequency: {self.control_frequency} Hz")
-    
+        self.get_logger().info(f"Control frequency: {self.control_frequency} Hz")
+
     def speed_cap_callback(self, msg: Float64):
         """
         Callback to update the maximum speed cap dynamically.
@@ -212,22 +262,22 @@ class PurePursuit(Node):
             msg (Float64): New maximum velocity
         """
         self.target_velocity = msg.data
-        self.get_logger().info(f"Updated max velocity to {self.target_velocity:.2f} m/s", throttle_duration_sec=5.0)
+        self.get_logger().info(
+            f"Updated max velocity to {self.target_velocity:.2f} m/s",
+            throttle_duration_sec=5.0,
+        )
 
-
-    def toggle_stop_cb(self, msg: Bool):
+    def toggle_stop_cb(self, msg: String):
         """
-        Emergency stop callback to pause/resume the controller.
+        Callback to toggle the emergency stop state.
 
         Args:
-            msg (Bool): True to stop, False to resume
+            msg (String): Message indicating the desired stop state
         """
-        if msg.data:
-            self.stop = True
-            self.get_logger().info("Pure Pursuit stopped")
+        if msg.data == "pure_pursuit":
+            self.activate_autonomous_vel = True
         else:
-            self.stop = False
-            self.get_logger().info("Pure Pursuit resumed")
+            self.activate_autonomous_vel = False
 
     def joy_callback(self, msg: Joy):
         """
@@ -235,7 +285,7 @@ class PurePursuit(Node):
 
         Button mapping:
         - Y (button 3): Increase kd by 0.1
-        - A (button 1): Decrease kd by 0.1  
+        - A (button 1): Decrease kd by 0.1
         - B (button 2): Increase kp by 0.1
         - X (button 0): Decrease kp by 0.1
         - LB (button 4): Enable autonomous velocity control
@@ -263,12 +313,6 @@ class PurePursuit(Node):
             self.kp -= 0.1
             self.get_logger().info(f"kp decreased to {self.kp:.2f}")
 
-        # LB button - Toggle autonomous velocity control
-        if msg.buttons[4] == 1:
-            self.activate_autonomous_vel = True
-        else:
-            self.activate_autonomous_vel = False
-
     def path_update_cb(self, msg: Path):
         """
         Callback for switching between different path sources.
@@ -284,7 +328,7 @@ class PurePursuit(Node):
             self.path.append((x, y, v))
 
         self.get_logger().info(f"Path updated with {len(self.path)} points")
-        if self.inverse: 
+        if self.inverse:
             self.path = self.path[::-1]
             self.get_logger().info("Inverted the path")
 
@@ -302,10 +346,10 @@ class PurePursuit(Node):
         try:
             now = rclpy.time.Time()
             transform = self.tf_buffer.lookup_transform(
-                self.tf_target,          # target_frame
-                self.tf_source,    # source_frame
+                self.tf_target,  # target_frame
+                self.tf_source,  # source_frame
                 now,
-                timeout=rclpy.duration.Duration(seconds=self.tf_timeout)
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout),
             )
 
             trans = transform.transform.translation
@@ -322,11 +366,13 @@ class PurePursuit(Node):
 
             # Calculate adaptive lookahead distance
             self.lookahead_distance = self.get_lad_thresh(
-                self.odometry.twist.twist.linear.x)
+                self.odometry.twist.twist.linear.x
+            )
 
             # Find the lookahead point on the path
             lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(
-                x, y)
+                x, y
+            )
 
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found")
@@ -334,7 +380,8 @@ class PurePursuit(Node):
 
             # Execute pure pursuit control
             self.pursuit_the_point(
-                lookahead_point, lookahead_index, x, y, yaw, closest_point)
+                lookahead_point, lookahead_index, x, y, yaw, closest_point
+            )
 
             # Publish lookahead point marker for visualization
             self.publish_lookahead_marker(lookahead_point)
@@ -349,14 +396,13 @@ class PurePursuit(Node):
         Args:
             lookahead (tuple): (x, y, v) coordinates of lookahead point
             x (float): Current vehicle x position
-            y (float): Current vehicle y position  
+            y (float): Current vehicle y position
             yaw (float): Current vehicle yaw angle
 
         Returns:
             float: Perpendicular distance (negative = left, positive = right)
         """
-        lookahead_in_car_frame = self.transform_to_vehicle_frame(
-            lookahead, x, y, yaw)
+        lookahead_in_car_frame = self.transform_to_vehicle_frame(lookahead, x, y, yaw)
         # Negative because positive y is to the left
         return -lookahead_in_car_frame[1]
 
@@ -373,7 +419,7 @@ class PurePursuit(Node):
         """
         if self.target_velocity != -1.0:
             target_vel = min(target_vel, self.target_velocity)
-            
+
         vel = target_vel
         if (target_vel - curr_vel) > self.skidding_velocity_thresh:
             vel = self.skidding_velocity_thresh + curr_vel
@@ -403,8 +449,7 @@ class PurePursuit(Node):
             float: Calculated lookahead distance in meters
         """
         # Linear interpolation: lad = m*v + c
-        m = (self.max_lad - self.min_lad) / \
-            (self.max_velocity - self.min_velocity)
+        m = (self.max_lad - self.min_lad) / (self.max_velocity - self.min_velocity)
         c = self.max_lad - m * self.max_velocity
         lad = m * v + c
 
@@ -412,7 +457,9 @@ class PurePursuit(Node):
         lad = max(self.min_lad, min(self.max_lad, lad))
         return lad
 
-    def pursuit_the_point(self, lookahead_point, lookahead_index, x, y, yaw, closest_point):
+    def pursuit_the_point(
+        self, lookahead_point, lookahead_index, x, y, yaw, closest_point
+    ):
         """
         Execute pure pursuit control to track the lookahead point.
 
@@ -431,11 +478,13 @@ class PurePursuit(Node):
             yaw (float): Current vehicle yaw angle
             closest_point (tuple): (x, y, v) closest point on path to vehicle
         """
+        if not self.activate_autonomous_vel:
+            return
         # Transform lookahead point to vehicle frame
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
 
         # Calculate curvature (gamma) for pure pursuit steering
-        gamma = 2 * ly / (self.lookahead_distance ** 2)
+        gamma = 2 * ly / (self.lookahead_distance**2)
 
         # PD control for steering angle
         d_controller = (self.prev_gamma - gamma) * self.kd
@@ -446,28 +495,29 @@ class PurePursuit(Node):
         # Create Ackermann drive command
         ackermann = AckermannDriveStamped()
         ackermann.header.stamp = self.get_clock().now().to_msg()
-        ackermann.header.frame_id = 'base_link'
+        ackermann.header.frame_id = "base_link"
 
-        # Determine velocity based on autonomous mode and path information
-        if self.activate_autonomous_vel and not self.stop:
-            if closest_point[2] > 0.0:  # Path has velocity information
-                ackermann.drive.speed = closest_point[2] 
-            else:  # Use sigmoid velocity control based on steering curvature
-                ackermann.drive.speed = self.find_linear_vel_steering_controlled_sigmoidally(
-                    gamma)
+        if closest_point[2] > 0.0:  # Path has velocity information
+            ackermann.drive.speed = closest_point[2]
+        else:  # Use sigmoid velocity control based on steering curvature
+            ackermann.drive.speed = (
+                self.find_linear_vel_steering_controlled_sigmoidally(gamma)
+            )
 
         # Check if perpendicular distance is too large (off-track detection)
         perp_distance = self.perp_distance_car_frame_lookahead_point(
-            lookahead_point, x, y, yaw)
+            lookahead_point, x, y, yaw
+        )
         if perp_distance >= self.lookahead_distance:
-            lookahead_index += 8    # Skip ahead in path
+            lookahead_index += 8  # Skip ahead in path
             ackermann.drive.speed /= 2.0  # Reduce speed for safety
             if lookahead_index < len(self.path):
                 lookahead_point = self.path[lookahead_index]
 
         # Apply velocity smoothing to prevent skidding
         ackermann.drive.speed = self.smooth_vel(
-            self.odometry.twist.twist.linear.x, ackermann.drive.speed)
+            self.odometry.twist.twist.linear.x, ackermann.drive.speed
+        )
         ackermann.drive.steering_angle = steering_angle
 
         # Publish the control command
@@ -491,7 +541,7 @@ class PurePursuit(Node):
                   if no suitable point is found
         """
         closest_idx = 0
-        min_dist = float('inf')
+        min_dist = float("inf")
 
         # Find the closest path point to the vehicle
         for i, point in enumerate(self.path):
@@ -564,8 +614,9 @@ class PurePursuit(Node):
             float: Calculated velocity within min/max bounds
         """
         k = 7.0  # Steepness parameter
-        vel = self.min_velocity + \
-            (self.max_velocity - self.min_velocity) / (1 + k * abs(gamma))
+        vel = self.min_velocity + (self.max_velocity - self.min_velocity) / (
+            1 + k * abs(gamma)
+        )
         return max(self.min_velocity, min(self.max_velocity, vel))
 
     def compute_c(self, v_min, v_max, k):
@@ -574,7 +625,7 @@ class PurePursuit(Node):
 
         Args:
             v_min (float): Minimum velocity
-            v_max (float): Maximum velocity  
+            v_max (float): Maximum velocity
             k (float): Sigmoid steepness parameter
 
         Returns:
@@ -596,10 +647,10 @@ class PurePursuit(Node):
             float: Calculated velocity within min/max bounds
         """
         k = self.k_sigmoid
-        c = self.compute_c(v_min=self.min_velocity,
-                           v_max=self.max_velocity, k=k)
-        vel = self.min_velocity + ((self.max_velocity - self.min_velocity) /
-                                   (1 + np.exp(k * (abs(gamma) - c))))
+        c = self.compute_c(v_min=self.min_velocity, v_max=self.max_velocity, k=k)
+        vel = self.min_velocity + (
+            (self.max_velocity - self.min_velocity) / (1 + np.exp(k * (abs(gamma) - c)))
+        )
 
         # Clamp velocity to safety bounds
         vel = max(self.min_velocity, min(self.max_velocity, vel))
@@ -618,8 +669,7 @@ class PurePursuit(Node):
         # Linear relationship: vel = m*gamma + c
         self.min_gamma = 0.0
         self.max_gamma = 2 / self.lookahead_distance
-        m = (self.min_velocity - self.max_velocity) / \
-            (self.max_gamma - self.min_gamma)
+        m = (self.min_velocity - self.max_velocity) / (self.max_gamma - self.min_gamma)
         c = self.min_velocity - m * self.max_gamma
         vel = m * gamma + c
 
@@ -635,7 +685,7 @@ class PurePursuit(Node):
             point (tuple): (x, y, v) coordinates of the lookahead point
         """
         marker = Marker()
-        marker.header.frame_id = 'map'
+        marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "lookahead"
         marker.id = 0
@@ -663,7 +713,7 @@ class PurePursuit(Node):
             y (float): Vehicle y position (center of circle)
         """
         marker = Marker()
-        marker.header.frame_id = 'map'
+        marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = "lookahead"
         marker.id = 1
@@ -671,9 +721,9 @@ class PurePursuit(Node):
         marker.action = Marker.ADD
         marker.pose.orientation.w = 1.0
         marker.scale.x = 0.03  # Line thickness
-        marker.color.a = 1.0   # Fully opaque
+        marker.color.a = 1.0  # Fully opaque
         marker.color.r = 0.0
-        marker.color.g = 1.0   # Green
+        marker.color.g = 1.0  # Green
         marker.color.b = 0.0
 
         # Create circle points around vehicle position

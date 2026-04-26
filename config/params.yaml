@@ -19,7 +19,7 @@ pure_pursuit_node:
     cmd_vel_topic: "/drive"   # Ackermann drive command topic
     odometry_topic: "/odom"           # Odometry topic for vehicle pose
     joy_topic: "/joy"                     # Joystick topic for manual tuning
-    pause_topic: "/pause"                 # Emergency pause topic
+    pause_topic: "/control_selector"                 # Control selector topic to pause/resume autonomous control
     path_topic: "/pp_path"                   # Topic for the selected path
     tf_target: "map"
     tf_source: "base_link"
