@@ -188,7 +188,7 @@ class PurePursuit(Node):
         self.target_velocity = -1.0
         self.inverse = self.get_parameter("inverse").get_parameter_value().bool_value
         self.control_selector_topic = (
-            self.get_parameter("control_selector_topic")
+            self.get_parameter("pause_topic")
             .get_parameter_value()
             .string_value
         )
@@ -254,6 +254,18 @@ class PurePursuit(Node):
         self.get_logger().info("Pure Pursuit Node initialized successfully")
         self.get_logger().info(f"Control frequency: {self.control_frequency} Hz")
 
+    def control_selector_callback(self, msg: String):
+        """
+        Callback to handle control mode selection.
+
+        Args:
+            msg (String): Message indicating the selected control mode
+        """
+        if msg.data == "pure_pursuit":
+            self.activate_autonomous_vel = True
+        else:
+            self.activate_autonomous_vel = False
+    
     def speed_cap_callback(self, msg: Float64):
         """
         Callback to update the maximum speed cap dynamically.
