@@ -499,7 +499,7 @@ class PurePursuit(Node):
         gamma = 2 * ly / (self.lookahead_distance**2)
 
         # PD control for steering angle
-        d_controller = (self.prev_gamma - gamma) * self.kd
+        d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
