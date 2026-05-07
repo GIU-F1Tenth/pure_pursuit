@@ -94,6 +94,7 @@ class PurePursuit(Node):
         self.declare_parameter("min_velocity", 0.0)
         self.declare_parameter("cmd_vel_topic", "/ackermann_cmd")
         self.declare_parameter("odometry_topic", "/odom")
+        self.declare_parameter("fused_odometry_topic", "/fused_odometry")
         self.declare_parameter("path_topic", "/path")
         self.declare_parameter("kp", 0.0)
         self.declare_parameter("kd", 0.0)
@@ -111,6 +112,7 @@ class PurePursuit(Node):
         self.declare_parameter("enable_speed_capping", True)
         self.declare_parameter("speed_capping_topic", "/speed_cap")
         self.declare_parameter("inverse", False)
+        self.declare_parameter("use_fused_odometry", True)
 
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -136,6 +138,14 @@ class PurePursuit(Node):
         )
         self.odom_topic = (
             self.get_parameter("odometry_topic").get_parameter_value().string_value
+        )
+        self.fused_odom_topic = (
+            self.get_parameter("fused_odometry_topic")
+            .get_parameter_value()
+            .string_value
+        )
+        self.use_fused_odometry = (
+            self.get_parameter("use_fused_odometry").get_parameter_value().bool_value
         )
         self.path_topic = (
             self.get_parameter("path_topic").get_parameter_value().string_value
@@ -188,10 +198,16 @@ class PurePursuit(Node):
         self.target_velocity = -1.0
         self.inverse = self.get_parameter("inverse").get_parameter_value().bool_value
         self.control_selector_topic = (
-            self.get_parameter("pause_topic")
-            .get_parameter_value()
-            .string_value
+            self.get_parameter("pause_topic").get_parameter_value().string_value
         )
+        if self.use_fused_odometry:
+            self.fused_odom_sub = self.create_subscription(
+                Odometry,
+                self.fused_odom_topic,
+                self.fused_odom_callback,
+                self.queue_size,
+            )
+            self.fused_odometry = Odometry()
 
         # Initialize subscribers and publishers
         self.odom_sub = self.create_subscription(
@@ -265,7 +281,7 @@ class PurePursuit(Node):
             self.activate_autonomous_vel = True
         else:
             self.activate_autonomous_vel = False
-    
+
     def speed_cap_callback(self, msg: Float64):
         """
         Callback to update the maximum speed cap dynamically.
@@ -349,39 +365,47 @@ class PurePursuit(Node):
         Main control loop that gets robot pose and executes pure pursuit control.
 
         This method is called at the configured control frequency. It:
-        1. Gets the current robot pose from TF2
+        1. Gets the current robot pose (from fused odometry or TF2)
         2. Calculates lookahead distance based on current velocity
         3. Finds the appropriate lookahead point on the path
         4. Executes pure pursuit control to track that point
         5. Publishes visualization markers for debugging
         """
         try:
-            now = rclpy.time.Time()
-            transform = self.tf_buffer.lookup_transform(
-                self.tf_target,  # target_frame
-                self.tf_source,  # source_frame
-                now,
-                timeout=rclpy.duration.Duration(seconds=self.tf_timeout),
-            )
+            if self.use_fused_odometry:
+                pose = self.fused_odometry.pose.pose
+                x = pose.position.x
+                y = pose.position.y
+                orientation_list = [
+                    pose.orientation.x,
+                    pose.orientation.y,
+                    pose.orientation.z,
+                    pose.orientation.w,
+                ]
+                _, _, yaw = euler_from_quaternion(orientation_list)
+                velocity = self.fused_odometry.twist.twist.linear.x
+            else:
+                now = rclpy.time.Time()
+                transform = self.tf_buffer.lookup_transform(
+                    self.tf_target,
+                    self.tf_source,
+                    now,
+                    timeout=rclpy.duration.Duration(seconds=self.tf_timeout),
+                )
 
-            trans = transform.transform.translation
-            rot = transform.transform.rotation
+                trans = transform.transform.translation
+                rot = transform.transform.rotation
 
-            # Convert quaternion to yaw angle
-            orientation_list = [rot.x, rot.y, rot.z, rot.w]
-            _, _, yaw = euler_from_quaternion(orientation_list)
+                orientation_list = [rot.x, rot.y, rot.z, rot.w]
+                _, _, yaw = euler_from_quaternion(orientation_list)
 
-            x, y = trans.x, trans.y
+                x, y = trans.x, trans.y
+                velocity = self.odometry.twist.twist.linear.x
 
-            # Publish visualization markers
             self.publish_lookahead_circle(x, y)
 
-            # Calculate adaptive lookahead distance
-            self.lookahead_distance = self.get_lad_thresh(
-                self.odometry.twist.twist.linear.x
-            )
+            self.lookahead_distance = self.get_lad_thresh(velocity)
 
-            # Find the lookahead point on the path
             lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(
                 x, y
             )
@@ -390,12 +414,10 @@ class PurePursuit(Node):
                 self.get_logger().warn("No lookahead point found")
                 return
 
-            # Execute pure pursuit control
             self.pursuit_the_point(
                 lookahead_point, lookahead_index, x, y, yaw, closest_point
             )
 
-            # Publish lookahead point marker for visualization
             self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
@@ -446,6 +468,15 @@ class PurePursuit(Node):
             msg (Odometry): Vehicle odometry containing pose and twist information
         """
         self.odometry = msg
+
+    def fused_odom_callback(self, msg: Odometry):
+        """
+        Fused odometry callback to store the latest fused vehicle state from state publisher.
+
+        Args:
+            msg (Odometry): Fused odometry containing map->base_link pose and velocity
+        """
+        self.fused_odometry = msg
 
     def get_lad_thresh(self, v):
         """
