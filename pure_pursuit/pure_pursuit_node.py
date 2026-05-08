@@ -9,6 +9,7 @@ predefined path while maintaining smooth steering and velocity control.
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import PoseStamped, Point
 from std_msgs.msg import String, Bool
@@ -201,11 +202,16 @@ class PurePursuit(Node):
             self.get_parameter("pause_topic").get_parameter_value().string_value
         )
         if self.use_fused_odometry:
+            qos_profile = QoSProfile(
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+            )
             self.fused_odom_sub = self.create_subscription(
                 Odometry,
                 self.fused_odom_topic,
                 self.fused_odom_callback,
-                self.queue_size,
+                qos_profile
             )
             self.fused_odometry = Odometry()
 
