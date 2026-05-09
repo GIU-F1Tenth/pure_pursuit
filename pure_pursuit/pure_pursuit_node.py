@@ -116,7 +116,8 @@ class PurePursuit(Node):
         self.declare_parameter("use_fused_odometry", True)
         self.declare_parameter("use_lateral_error_gamma_compensation", True)
         self.declare_parameter("lateral_error_compensation_gain", 0.1)
-
+        self.declare_parameter("use_lateral_error_speed_reducer", True)
+        self.declare_parameter("lateral_error_speed_reducer_gain", 0.1)
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
@@ -155,6 +156,12 @@ class PurePursuit(Node):
         )
         self.lateral_error_compensation_gain = (
             self.get_parameter("lateral_error_compensation_gain").get_parameter_value().double_value
+        )
+        self.use_lateral_error_speed_reducer = (
+            self.get_parameter("use_lateral_error_speed_reducer").get_parameter_value().bool_value
+        )
+        self.lateral_error_speed_reducer_gain = (
+            self.get_parameter("lateral_error_speed_reducer_gain").get_parameter_value().double_value
         )
         self.path_topic = (
             self.get_parameter("path_topic").get_parameter_value().string_value
@@ -546,7 +553,7 @@ class PurePursuit(Node):
         # PD control for steering angle
         d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
-        if self.use_lateral_error_gamma_compensation:
+        if self.use_lateral_error_gamma_compensation: # agressive compensation of steering angle based on lateral error
             p_controller += ly * self.lateral_error_compensation_gain
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
@@ -558,6 +565,11 @@ class PurePursuit(Node):
 
         if closest_point[2] > 0.0:  # Path has velocity information
             ackermann.drive.speed = closest_point[2]
+            if self.use_lateral_error_speed_reducer: # safety feature to reduce speed when lateral error is large, preventing skidding and improving stability at high speeds
+                speed_reduction = abs(ly) * self.lateral_error_speed_reducer_gain
+                ackermann.drive.speed = max(
+                    self.min_velocity, ackermann.drive.speed - speed_reduction
+                )
         else:  # Use sigmoid velocity control based on steering curvature
             ackermann.drive.speed = (
                 self.find_linear_vel_steering_controlled_sigmoidally(gamma)

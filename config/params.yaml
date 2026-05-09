@@ -15,8 +15,10 @@ pure_pursuit_node:
     kd: 1.2                           # Derivative gain for steering control
     k_sigmoid: 8.0                    # Sigmoid steepness for velocity control
     use_lateral_error_gamma_compensation: true  # Enable compensation of steering angle based on lateral error
-    lateral_error_compensation_gain: 0.1  # Gain for lateral error compensation
-    
+    lateral_error_compensation_gain: 0.4  # Gain for lateral error compensation
+    use_lateral_error_speed_reducer: true  # Enable speed reduction based on lateral error
+    lateral_error_speed_reducer_gain: 2.0  # Gain for speed reduction based on lateral error
+
     # Topic Names
     cmd_vel_topic: "/drive"   # Ackermann drive command topic
     odometry_topic: "/odom"           # Odometry topic for vehicle pose
