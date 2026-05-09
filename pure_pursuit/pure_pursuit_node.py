@@ -114,6 +114,8 @@ class PurePursuit(Node):
         self.declare_parameter("speed_capping_topic", "/speed_cap")
         self.declare_parameter("inverse", False)
         self.declare_parameter("use_fused_odometry", True)
+        self.declare_parameter("use_lateral_error_gamma_compensation", True)
+        self.declare_parameter("lateral_error_compensation_gain", 0.1)
 
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
@@ -147,6 +149,12 @@ class PurePursuit(Node):
         )
         self.use_fused_odometry = (
             self.get_parameter("use_fused_odometry").get_parameter_value().bool_value
+        )
+        self.use_lateral_error_gamma_compensation = (
+            self.get_parameter("use_lateral_error_gamma_compensation").get_parameter_value().bool_value
+        )
+        self.lateral_error_compensation_gain = (
+            self.get_parameter("lateral_error_compensation_gain").get_parameter_value().double_value
         )
         self.path_topic = (
             self.get_parameter("path_topic").get_parameter_value().string_value
@@ -538,6 +546,8 @@ class PurePursuit(Node):
         # PD control for steering angle
         d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
+        if self.use_lateral_error_gamma_compensation:
+            p_controller += ly * self.lateral_error_compensation_gain
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
 
