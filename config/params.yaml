@@ -27,6 +27,7 @@ pure_pursuit_node:
     path_topic: "/pp_path"                   # Topic for the selected path
     tf_target: "map"
     tf_source: "base_link"
+    laser_base_link_length: 0.27
 
     # Timer and Processing Parameters
     control_frequency: 200.0              # Control loop frequency in Hz (1/timer_period)

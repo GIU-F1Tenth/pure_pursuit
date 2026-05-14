@@ -110,6 +110,7 @@ class PurePursuit(Node):
         self.declare_parameter("publisher_queue_size", 10)
         self.declare_parameter("tf_target", "map")
         self.declare_parameter("tf_source", "base_link")
+        self.declare_parameter("laser_base_link_length", 0.27)
         self.declare_parameter("enable_speed_capping", True)
         self.declare_parameter("speed_capping_topic", "/speed_cap")
         self.declare_parameter("inverse", False)
@@ -204,6 +205,9 @@ class PurePursuit(Node):
         )
         self.tf_source = (
             self.get_parameter("tf_source").get_parameter_value().string_value
+        )
+        self.laser_base_link_length = (
+            self.get_parameter("laser_base_link_length").get_parameter_value().double_value
         )
         self.speed_capping_enabled = (
             self.get_parameter("enable_speed_capping").get_parameter_value().bool_value
@@ -427,8 +431,8 @@ class PurePursuit(Node):
 
             self.lookahead_distance = self.get_lad_thresh(velocity)
 
-            lookahead_point, closest_point, lookahead_index = self.find_lookahead_point(
-                x, y
+            lookahead_point, closest_point, lookahead_index, closest_point_laser, closest_laser_idx = self.find_lookahead_point(
+                x, y, yaw
             )
 
             if lookahead_point is None:
@@ -436,7 +440,7 @@ class PurePursuit(Node):
                 return
 
             self.pursuit_the_point(
-                lookahead_point, lookahead_index, x, y, yaw, closest_point
+                lookahead_point, lookahead_index, x, y, yaw, closest_point, closest_point_laser
             )
 
             self.publish_lookahead_marker(lookahead_point)
@@ -522,7 +526,7 @@ class PurePursuit(Node):
         return lad
 
     def pursuit_the_point(
-        self, lookahead_point, lookahead_index, x, y, yaw, closest_point
+        self, lookahead_point, lookahead_index, x, y, yaw, closest_point, closest_point_laser
     ):
         """
         Execute pure pursuit control to track the lookahead point.
@@ -546,7 +550,7 @@ class PurePursuit(Node):
             return
         # Transform lookahead point to vehicle frame
         lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
-
+        laser_lx, laser_ly = self.transform_to_vehicle_frame(closest_point_laser, x, y, yaw)
         # Calculate curvature (gamma) for pure pursuit steering
         gamma = 2 * ly / (self.lookahead_distance**2)
 
@@ -554,7 +558,7 @@ class PurePursuit(Node):
         d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
         if self.use_lateral_error_gamma_compensation: # agressive compensation of steering angle based on lateral error
-            p_controller += ly * self.lateral_error_compensation_gain
+            p_controller += laser_ly * self.lateral_error_compensation_gain #! to be tested. here laser_ly is more responsive that ly
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
 
@@ -566,7 +570,7 @@ class PurePursuit(Node):
         if closest_point[2] > 0.0:  # Path has velocity information
             ackermann.drive.speed = closest_point[2]
             if self.use_lateral_error_speed_reducer: # safety feature to reduce speed when lateral error is large, preventing skidding and improving stability at high speeds
-                speed_reduction = abs(ly) * self.lateral_error_speed_reducer_gain
+                speed_reduction = abs(laser_ly) * self.lateral_error_speed_reducer_gain #! to be tested. here laser_ly is more responsive that ly
                 ackermann.drive.speed = max(
                     self.min_velocity, ackermann.drive.speed - speed_reduction
                 )
@@ -594,7 +598,7 @@ class PurePursuit(Node):
         # Publish the control command
         self.cmd_vel_pub.publish(ackermann)
 
-    def find_lookahead_point(self, x, y):
+    def find_lookahead_point(self, x, y, yaw):
         """
         Find the appropriate lookahead point on the path for pure pursuit control.
 
@@ -612,8 +616,12 @@ class PurePursuit(Node):
                   if no suitable point is found
         """
         closest_idx = 0
+        closest_laser_idx = 0
         min_dist = float("inf")
+        min_dist_laser = float("inf")
 
+        x_laser = x + self.laser_base_link_length*np.cos(yaw)
+        y_laser = y + self.laser_base_link_length*np.sin(yaw)
         # Find the closest path point to the vehicle
         for i, point in enumerate(self.path):
             dx = point[0] - x
@@ -622,6 +630,12 @@ class PurePursuit(Node):
             if dist < min_dist:
                 min_dist = dist
                 closest_idx = i
+            dx_laser = point[0] - x_laser
+            dy_laser = point[1] - y_laser
+            dist_laser = math.sqrt(dx_laser**2 + dy_laser**2)
+            if dist_laser < min_dist_laser:
+                min_dist_laser = dist_laser
+                closest_laser_idx = i
 
         # Search forward from closest point for lookahead point
         for i in range(closest_idx, len(self.path)):
@@ -629,7 +643,7 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx], i
+                return self.path[i], self.path[closest_idx], i, self.path[closest_laser_idx], closest_laser_idx
 
         # If no point found, search from beginning (path wrap-around)
         for i in range(0, len(self.path)):
@@ -637,9 +651,9 @@ class PurePursuit(Node):
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
             if distance >= self.lookahead_distance:
-                return self.path[i], self.path[closest_idx], i
+                return self.path[i], self.path[closest_idx], i, self.path[closest_laser_idx], closest_laser_idx
 
-        return None, None, None
+        return None, None, None, None, None
 
     def transform_to_vehicle_frame(self, point, x, y, yaw):
         """
