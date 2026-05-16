@@ -431,8 +431,11 @@ class PurePursuit(Node):
 
             self.lookahead_distance = self.get_lad_thresh(velocity)
 
+            x_laser = x + self.laser_base_link_length*np.cos(yaw)
+            y_laser = y + self.laser_base_link_length*np.sin(yaw)
+
             lookahead_point, closest_point, lookahead_index, closest_point_laser, closest_laser_idx = self.find_lookahead_point(
-                x, y, yaw
+                x, y, yaw, x_laser, y_laser
             )
 
             if lookahead_point is None:
@@ -440,7 +443,7 @@ class PurePursuit(Node):
                 return
 
             self.pursuit_the_point(
-                lookahead_point, lookahead_index, x, y, yaw, closest_point, closest_point_laser
+                lookahead_point, lookahead_index, x, y, yaw, x_laser,y_laser, closest_point, closest_point_laser
             )
 
             self.publish_lookahead_marker(lookahead_point)
@@ -448,22 +451,6 @@ class PurePursuit(Node):
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
-    def perp_distance_car_frame_lookahead_point(self, lookahead, x, y, yaw):
-        """
-        Calculate perpendicular distance from vehicle to lookahead point in vehicle frame.
-
-        Args:
-            lookahead (tuple): (x, y, v) coordinates of lookahead point
-            x (float): Current vehicle x position
-            y (float): Current vehicle y position
-            yaw (float): Current vehicle yaw angle
-
-        Returns:
-            float: Perpendicular distance (negative = left, positive = right)
-        """
-        lookahead_in_car_frame = self.transform_to_vehicle_frame(lookahead, x, y, yaw)
-        # Negative because positive y is to the left
-        return -lookahead_in_car_frame[1]
 
     def smooth_vel(self, curr_vel, target_vel) -> float:
         """
@@ -526,7 +513,7 @@ class PurePursuit(Node):
         return lad
 
     def pursuit_the_point(
-        self, lookahead_point, lookahead_index, x, y, yaw, closest_point, closest_point_laser
+        self, lookahead_point, lookahead_index, x, y, yaw, x_laser, y_laser, closest_point, closest_point_laser
     ):
         """
         Execute pure pursuit control to track the lookahead point.
@@ -549,8 +536,15 @@ class PurePursuit(Node):
         if not self.activate_autonomous_vel:
             return
         # Transform lookahead point to vehicle frame
-        lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw)
-        laser_lx, laser_ly = self.transform_to_vehicle_frame(closest_point_laser, x, y, yaw)
+        lx, ly = self.transform_to_vehicle_frame(lookahead_point, x, y, yaw) # ly is the lateral deviation of the base_link frame from the lookahead point
+        laser_x_e, laser_y_e = self.transform_to_vehicle_frame(closest_point_laser, x_laser, y_laser, yaw) # laser_y_e is the lateral deviation of the laser frame from the closest point TO the laser frame on the racing line
+        base_x_e, base_y_e = self.transform_to_vehicle_frame(closest_point, x, y, yaw)# base_y_e is the lateral deviation of the base_link frame from the closest point TO the base_link frame on the racing line
+
+        # Check if perpendicular distance "ly" is too large (off-track detection)
+        # if ly >= self.lookahead_distance:
+        #     lookahead_index = (lookahead_index + 8) % len(self.path)  # Skip ahead in path
+        #     lookahead_point = self.path[lookahead_index]
+
         # Calculate curvature (gamma) for pure pursuit steering
         gamma = 2 * ly / (self.lookahead_distance**2)
 
@@ -558,7 +552,7 @@ class PurePursuit(Node):
         d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
         if self.use_lateral_error_gamma_compensation: # agressive compensation of steering angle based on lateral error
-            p_controller += laser_ly * self.lateral_error_compensation_gain #! to be tested. here laser_ly is more responsive that ly
+            p_controller += ly * self.lateral_error_compensation_gain #! to be tested. 
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
 
@@ -570,7 +564,7 @@ class PurePursuit(Node):
         if closest_point[2] > 0.0:  # Path has velocity information
             ackermann.drive.speed = closest_point[2]
             if self.use_lateral_error_speed_reducer: # safety feature to reduce speed when lateral error is large, preventing skidding and improving stability at high speeds
-                speed_reduction = abs(laser_ly) * self.lateral_error_speed_reducer_gain #! to be tested. here laser_ly is more responsive that ly
+                speed_reduction = abs(base_y_e) * self.lateral_error_speed_reducer_gain #! to be tested.
                 ackermann.drive.speed = max(
                     self.min_velocity, ackermann.drive.speed - speed_reduction
                 )
@@ -578,16 +572,6 @@ class PurePursuit(Node):
             ackermann.drive.speed = (
                 self.find_linear_vel_steering_controlled_sigmoidally(gamma)
             )
-
-        # Check if perpendicular distance is too large (off-track detection)
-        perp_distance = self.perp_distance_car_frame_lookahead_point(
-            lookahead_point, x, y, yaw
-        )
-        if perp_distance >= self.lookahead_distance:
-            lookahead_index += 8  # Skip ahead in path
-            ackermann.drive.speed /= 2.0  # Reduce speed for safety
-            if lookahead_index < len(self.path):
-                lookahead_point = self.path[lookahead_index]
 
         # Apply velocity smoothing to prevent skidding
         ackermann.drive.speed = self.smooth_vel(
@@ -598,7 +582,7 @@ class PurePursuit(Node):
         # Publish the control command
         self.cmd_vel_pub.publish(ackermann)
 
-    def find_lookahead_point(self, x, y, yaw):
+    def find_lookahead_point(self, x, y, yaw, x_laser, y_laser):
         """
         Find the appropriate lookahead point on the path for pure pursuit control.
 
@@ -620,8 +604,6 @@ class PurePursuit(Node):
         min_dist = float("inf")
         min_dist_laser = float("inf")
 
-        x_laser = x + self.laser_base_link_length*np.cos(yaw)
-        y_laser = y + self.laser_base_link_length*np.sin(yaw)
         # Find the closest path point to the vehicle
         for i, point in enumerate(self.path):
             dx = point[0] - x
