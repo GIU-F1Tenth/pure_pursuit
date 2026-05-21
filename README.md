@@ -97,14 +97,14 @@ During operation, you can tune parameters in real-time using a joystick:
 |-----------|------|---------|-------------|
 | `max_lookahead_distance` | double | 2.0 | Maximum lookahead distance (m) |
 | `min_lookahead_distance` | double | 0.66 | Minimum lookahead distance (m) |
-| `max_velocity` | double | 4.7 | Maximum vehicle velocity (m/s) |
-| `min_velocity` | double | 2.2 | Minimum vehicle velocity (m/s) |
 | `kp` | double | 0.45 | Proportional steering gain |
 | `kd` | double | 1.2 | Derivative steering gain |
 | `k_sigmoid` | double | 8.0 | Sigmoid steepness for velocity control |
 | `vel_division_factor` | double | 1.0 | Velocity reduction factor |
 | `skidding_velocity_thresh` | double | 0.3 | Anti-skidding threshold |
 | `control_frequency` | double | 200.0 | Control loop frequency (Hz) |
+
+Velocity bounds are derived from positive velocities in the incoming path points.
 
 ### Topic Configuration
 

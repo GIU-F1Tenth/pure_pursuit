@@ -5,8 +5,6 @@ pure_pursuit_node:
     min_lookahead_distance: 0.66     # Minimum lookahead distance in meters
     
     # Velocity Control Parameters
-    max_velocity: 4.7                 # Maximum allowed velocity in m/s
-    min_velocity: 2.2                 # Minimum allowed velocity in m/s
     vel_division_factor: 1.0          # Factor to reduce velocity commands
     skidding_velocity_thresh: 0.3     # Velocity threshold to prevent skidding
     
@@ -18,6 +16,9 @@ pure_pursuit_node:
     lateral_error_compensation_gain: 0.4  # Gain for lateral error compensation
     use_lateral_error_speed_reducer: true  # Enable speed reduction based on lateral error
     lateral_error_speed_reducer_gain: 2.0  # Gain for speed reduction based on lateral error
+    lookahead_velocity_weight: 0.5     # Weight for velocity-based lookahead distance
+    lookahead_lateral_deviation_weight: 0.5  # Weight for lateral-error-based lookahead distance
+    max_lateral_deviation: 1.0         # Lateral deviation that maps to maximum lookahead distance
 
     # Topic Names
     cmd_vel_topic: "/drive"   # Ackermann drive command topic
