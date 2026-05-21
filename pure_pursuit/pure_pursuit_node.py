@@ -22,7 +22,7 @@ from sensor_msgs.msg import Joy
 import numpy as np
 from tf2_ros import Buffer, TransformListener
 from std_msgs.msg import Float64
-
+import time
 
 def euler_from_quaternion(quaternion):
     """
@@ -91,8 +91,6 @@ class PurePursuit(Node):
         # Declare all parameters with default values
         self.declare_parameter("max_lookahead_distance", 1.0)
         self.declare_parameter("min_lookahead_distance", 1.0)
-        self.declare_parameter("max_velocity", 0.0)
-        self.declare_parameter("min_velocity", 0.0)
         self.declare_parameter("cmd_vel_topic", "/ackermann_cmd")
         self.declare_parameter("odometry_topic", "/odom")
         self.declare_parameter("fused_odometry_topic", "/fused_odometry")
@@ -119,15 +117,13 @@ class PurePursuit(Node):
         self.declare_parameter("lateral_error_compensation_gain", 0.1)
         self.declare_parameter("use_lateral_error_speed_reducer", True)
         self.declare_parameter("lateral_error_speed_reducer_gain", 0.1)
+        self.declare_parameter("use_lateral_deviation_based_lookahead", False)
+        self.declare_parameter("lookahead_velocity_weight", 0.5)
+        self.declare_parameter("lookahead_lateral_deviation_weight", 0.5)
+        self.declare_parameter("max_lateral_deviation", 1.0)
         # Load parameters
         self.kp = self.get_parameter("kp").get_parameter_value().double_value
         self.kd = self.get_parameter("kd").get_parameter_value().double_value
-        self.max_velocity = (
-            self.get_parameter("max_velocity").get_parameter_value().double_value
-        )
-        self.min_velocity = (
-            self.get_parameter("min_velocity").get_parameter_value().double_value
-        )
         self.min_lad = (
             self.get_parameter("min_lookahead_distance")
             .get_parameter_value()
@@ -163,6 +159,18 @@ class PurePursuit(Node):
         )
         self.lateral_error_speed_reducer_gain = (
             self.get_parameter("lateral_error_speed_reducer_gain").get_parameter_value().double_value
+        )
+        self.lookahead_velocity_weight = (
+            self.get_parameter("lookahead_velocity_weight").get_parameter_value().double_value
+        )
+        self.lookahead_lateral_deviation_weight = (
+            self.get_parameter("lookahead_lateral_deviation_weight").get_parameter_value().double_value
+        )
+        self.max_lateral_deviation = (
+            self.get_parameter("max_lateral_deviation").get_parameter_value().double_value
+        )
+        self.use_lateral_deviation_based_lookahead = (
+            self.get_parameter("use_lateral_deviation_based_lookahead").get_parameter_value().bool_value
         )
         self.path_topic = (
             self.get_parameter("path_topic").get_parameter_value().string_value
@@ -273,7 +281,6 @@ class PurePursuit(Node):
 
         # Initialize path data structures
         self.csv_race_path = []
-        self.astar_path = []
 
         # Control state variables
         self.activate_autonomous_vel = False
@@ -283,7 +290,12 @@ class PurePursuit(Node):
 
         # Set initial path
         self.path = []
-
+        self.min_velocity, self.max_velocity = None, None
+        
+        # lookahead 
+        if self.lookahead_velocity_weight + self.lookahead_lateral_deviation_weight != 1.0:
+            raise ValueError("Lookahead velocity and lateral deviation weights must sum to 1.0")
+        
         # Initialize visualization publishers
         self.lookahead_marker_pub = self.create_publisher(
             Marker, "/lookahead_marker", self.pub_queue_size
@@ -294,6 +306,13 @@ class PurePursuit(Node):
 
         self.get_logger().info("Pure Pursuit Node initialized successfully")
         self.get_logger().info(f"Control frequency: {self.control_frequency} Hz")
+        self.get_logger().info(f"Use lateral deviation based lookahead: {self.use_lateral_deviation_based_lookahead}")
+        if self.use_lateral_deviation_based_lookahead:
+            self.get_logger().info(f"Lookahead velocity weight: {self.lookahead_velocity_weight}")
+            self.get_logger().info(f"Lookahead lateral deviation weight: {self.lookahead_lateral_deviation_weight}")
+        self.get_logger().info(f"Use lateral error gamma compensation: {self.use_lateral_error_gamma_compensation}")
+        self.get_logger().info(f"Use lateral error speed reducer: {self.use_lateral_error_speed_reducer}")
+        self.get_logger().info(f"Use fused odometry: {self.use_fused_odometry}")
 
     def control_selector_callback(self, msg: String):
         """
@@ -312,11 +331,11 @@ class PurePursuit(Node):
         Callback to update the maximum speed cap dynamically.
 
         Args:
-            msg (Float64): New maximum velocity
+            msg (Float64): New speed cap
         """
         self.target_velocity = msg.data
         self.get_logger().info(
-            f"Updated max velocity to {self.target_velocity:.2f} m/s",
+            f"Updated speed cap to {self.target_velocity:.2f} m/s",
             throttle_duration_sec=5.0,
         )
 
@@ -366,12 +385,25 @@ class PurePursuit(Node):
             self.kp -= 0.1
             self.get_logger().info(f"kp decreased to {self.kp:.2f}")
 
+    def get_path_velocity_bounds(self):
+        """
+        Get velocity bounds from the current path.
+
+        Path velocities are stored in each path point's third tuple element.
+        Non-positive values are treated as missing velocity data.
+        """
+        velocities = [point[2] for point in self.path if point[2] > 0.0]
+        if not velocities:
+            return 0.0, 0.0
+
+        return min(velocities), max(velocities)
+
     def path_update_cb(self, msg: Path):
         """
         Callback for switching between different path sources.
 
         Args:
-            msg (String): Path source identifier ("astar_path" or "csv_race_path")
+            msg (String): Path source identifier ("csv_race_path")
         """
         self.path = []
         for pose in msg.poses:
@@ -384,6 +416,16 @@ class PurePursuit(Node):
         if self.inverse:
             self.path = self.path[::-1]
             self.get_logger().info("Inverted the path")
+
+        self.min_velocity, self.max_velocity = self.get_path_velocity_bounds()
+        if self.max_velocity <= self.min_velocity:
+            self.get_logger().warn("Path contains no valid velocity data, using default velocity control")
+        elif self.max_velocity > 0.0:
+            self.get_logger().info(
+                f"Path velocity range: {self.min_velocity:.2f}-{self.max_velocity:.2f} m/s"
+            )
+        else:
+            self.get_logger().warn("Path contains no positive velocity data")
 
     def get_pose(self):
         """
@@ -427,30 +469,59 @@ class PurePursuit(Node):
                 x, y = trans.x, trans.y
                 velocity = self.odometry.twist.twist.linear.x
 
-            self.publish_lookahead_circle(x, y)
+            if self.use_lateral_deviation_based_lookahead:
+                closest_pt = self.find_closest_point_on_path(x, y)
+                bx_e, by_e = self.transform_to_vehicle_frame(closest_pt, x, y, yaw)
+                self.lookahead_distance = self.get_lad_lateral_deviation_velocity(velocity, by_e)
+            else:
+                self.lookahead_distance = self.get_lad_thresh(velocity)
 
-            self.lookahead_distance = self.get_lad_thresh(velocity)
+            self.publish_lookahead_circle(x, y)
 
             x_laser = x + self.laser_base_link_length*np.cos(yaw)
             y_laser = y + self.laser_base_link_length*np.sin(yaw)
 
             lookahead_point, closest_point, lookahead_index, closest_point_laser, closest_laser_idx = self.find_lookahead_point(
-                x, y, yaw, x_laser, y_laser
+                self.lookahead_distance, x, y, yaw, x_laser, y_laser
             )
 
             if lookahead_point is None:
                 self.get_logger().warn("No lookahead point found")
                 return
 
+            start_time = time.perf_counter()
             self.pursuit_the_point(
-                lookahead_point, lookahead_index, x, y, yaw, x_laser,y_laser, closest_point, closest_point_laser
+                self.lookahead_distance, lookahead_point, lookahead_index, x, y, yaw, x_laser,y_laser, closest_point, closest_point_laser
             )
+            end_time = time.perf_counter()
+            self.get_logger().debug(f"Control loop execution time: {(end_time - start_time)*1000:.2f} ms")
 
             self.publish_lookahead_marker(lookahead_point)
 
         except Exception as e:
             self.get_logger().warn(f"Transform not available: {e}")
 
+    def find_closest_point_on_path(self, x, y):
+        """
+        Find the closest point on the path to the current vehicle position.
+
+        Args:
+            x (float): Current vehicle x position
+            y (float): Current vehicle y position
+
+        Returns:
+            tuple: (x, y, v) coordinates of the closest point on the path
+        """
+        closest_point = None
+        min_dist = float("inf")
+        for point in self.path:
+            dx = point[0] - x
+            dy = point[1] - y
+            dist = math.sqrt(dx**2 + dy**2)
+            if dist < min_dist:
+                min_dist = dist
+                closest_point = point
+        return closest_point
 
     def smooth_vel(self, curr_vel, target_vel) -> float:
         """
@@ -512,8 +583,48 @@ class PurePursuit(Node):
         lad = max(self.min_lad, min(self.max_lad, lad))
         return lad
 
+    def get_lad_thresh_lateral_deviation(self, le):
+        """
+        Calculate adaptive lookahead distance based on lateral deviation.
+
+        Args:
+            le (float): Lateral deviation in meters
+
+        Returns:
+            float: Calculated lookahead distance in meters
+        """
+        # Simple proportional relationship (can be adjusted based on requirements)
+        if self.max_lateral_deviation <= 0.0:
+            return self.max_lad
+
+        lad = self.min_lad + abs(le) * (self.max_lad - self.min_lad) / self.max_lateral_deviation
+        return lad
+
+    def get_lad_lateral_deviation_velocity(self, v, le):
+        """
+        Calculate adaptive lookahead distance based on current velocity and lateral deviation.
+
+        Uses linear interpolation between min/max lookahead distances based on
+        the velocity range. Higher velocities get larger lookahead distances.
+
+        Args:
+            v (float): Current vehicle velocity in m/s
+            le (float): Lateral deviation in meters
+        Returns:
+            float: Calculated lookahead distance in meters
+        """
+        lad_v = self.get_lad_thresh(v)
+        lad_le = self.get_lad_thresh_lateral_deviation(le)
+        lad = (
+            self.lookahead_velocity_weight * lad_v
+            + self.lookahead_lateral_deviation_weight * lad_le
+        )
+        # Clamp to bounds
+        lad = max(self.min_lad, min(self.max_lad, lad))
+        return lad
+
     def pursuit_the_point(
-        self, lookahead_point, lookahead_index, x, y, yaw, x_laser, y_laser, closest_point, closest_point_laser
+        self, lookahead_distance, lookahead_point, lookahead_index, x, y, yaw, x_laser, y_laser, closest_point, closest_point_laser
     ):
         """
         Execute pure pursuit control to track the lookahead point.
@@ -541,12 +652,12 @@ class PurePursuit(Node):
         base_x_e, base_y_e = self.transform_to_vehicle_frame(closest_point, x, y, yaw)# base_y_e is the lateral deviation of the base_link frame from the closest point TO the base_link frame on the racing line
 
         # Check if perpendicular distance "ly" is too large (off-track detection)
-        # if ly >= self.lookahead_distance:
+        # if ly >= lookahead_distance:
         #     lookahead_index = (lookahead_index + 8) % len(self.path)  # Skip ahead in path
         #     lookahead_point = self.path[lookahead_index]
 
         # Calculate curvature (gamma) for pure pursuit steering
-        gamma = 2 * ly / (self.lookahead_distance**2)
+        gamma = 2 * ly / (lookahead_distance**2)
 
         # PD control for steering angle
         d_controller = (gamma - self.prev_gamma) * self.kd
@@ -582,7 +693,7 @@ class PurePursuit(Node):
         # Publish the control command
         self.cmd_vel_pub.publish(ackermann)
 
-    def find_lookahead_point(self, x, y, yaw, x_laser, y_laser):
+    def find_lookahead_point(self, lookahead_distance, x, y, yaw, x_laser, y_laser):
         """
         Find the appropriate lookahead point on the path for pure pursuit control.
 
@@ -624,7 +735,7 @@ class PurePursuit(Node):
             dx = self.path[i][0] - x
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
-            if distance >= self.lookahead_distance:
+            if distance >= lookahead_distance:
                 return self.path[i], self.path[closest_idx], i, self.path[closest_laser_idx], closest_laser_idx
 
         # If no point found, search from beginning (path wrap-around)
@@ -632,7 +743,7 @@ class PurePursuit(Node):
             dx = self.path[i][0] - x
             dy = self.path[i][1] - y
             distance = math.sqrt(dx**2 + dy**2)
-            if distance >= self.lookahead_distance:
+            if distance >= lookahead_distance:
                 return self.path[i], self.path[closest_idx], i, self.path[closest_laser_idx], closest_laser_idx
 
         return None, None, None, None, None
