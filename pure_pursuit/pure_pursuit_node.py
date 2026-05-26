@@ -412,7 +412,6 @@ class PurePursuit(Node):
             v = pose.pose.orientation.w  # Velocity stored in orientation.w
             self.path.append((x, y, v))
 
-        self.get_logger().info(f"Path updated with {len(self.path)} points")
         if self.inverse:
             self.path = self.path[::-1]
             self.get_logger().info("Inverted the path")
@@ -420,10 +419,6 @@ class PurePursuit(Node):
         self.min_velocity, self.max_velocity = self.get_path_velocity_bounds()
         if self.max_velocity <= self.min_velocity:
             self.get_logger().warn("Path contains no valid velocity data, using default velocity control")
-        elif self.max_velocity > 0.0:
-            self.get_logger().info(
-                f"Path velocity range: {self.min_velocity:.2f}-{self.max_velocity:.2f} m/s"
-            )
         else:
             self.get_logger().warn("Path contains no positive velocity data")
 
