@@ -419,7 +419,7 @@ class PurePursuit(Node):
         self.min_velocity, self.max_velocity = self.get_path_velocity_bounds()
         if self.max_velocity <= self.min_velocity:
             self.get_logger().warn("Path contains no valid velocity data, using default velocity control")
-        else:
+        elif self.max_velocity <= 0.0 or self.min_velocity <= 0.0:
             self.get_logger().warn("Path contains no positive velocity data")
 
     def get_pose(self):
