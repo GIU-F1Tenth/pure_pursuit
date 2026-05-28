@@ -108,7 +108,7 @@ class PurePursuit(Node):
         self.declare_parameter("publisher_queue_size", 10)
         self.declare_parameter("tf_target", "map")
         self.declare_parameter("tf_source", "base_link")
-        self.declare_parameter("laser_base_link_length", 0.27)
+        self.declare_parameter("laser_base_link_length", 0.35)
         self.declare_parameter("enable_speed_capping", True)
         self.declare_parameter("speed_capping_topic", "/speed_cap")
         self.declare_parameter("inverse", False)
@@ -658,7 +658,7 @@ class PurePursuit(Node):
         d_controller = (gamma - self.prev_gamma) * self.kd
         p_controller = self.kp * gamma
         if self.use_lateral_error_gamma_compensation: # agressive compensation of steering angle based on lateral error
-            p_controller += ly * self.lateral_error_compensation_gain #! to be tested. 
+            p_controller += ly * self.lateral_error_compensation_gain #! superduper line. 
         self.prev_gamma = gamma
         steering_angle = p_controller + d_controller
 
@@ -667,8 +667,8 @@ class PurePursuit(Node):
         ackermann.header.stamp = self.get_clock().now().to_msg()
         ackermann.header.frame_id = "base_link"
 
-        if closest_point[2] > 0.0:  # Path has velocity information
-            ackermann.drive.speed = closest_point[2]
+        if closest_point_laser[2] > 0.0:  # Path has velocity information
+            ackermann.drive.speed = closest_point_laser[2]
             if self.use_lateral_error_speed_reducer: # safety feature to reduce speed when lateral error is large, preventing skidding and improving stability at high speeds
                 speed_reduction = abs(base_y_e) * self.lateral_error_speed_reducer_gain #! to be tested.
                 ackermann.drive.speed = max(
