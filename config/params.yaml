@@ -22,7 +22,7 @@ pure_pursuit_node:
 
     # Topic Names
     cmd_vel_topic: "/drive"   # Ackermann drive command topic
-    odometry_topic: "/odom"           # Odometry topic for vehicle pose
+    odometry_topic: "/ego_racecar/odom"           # Odometry topic for vehicle pose
     joy_topic: "/joy"                     # Joystick topic for manual tuning
     pause_topic: "/control_selector"                 # Control selector topic to pause/resume autonomous control
     path_topic: "/pp_path"                   # Topic for the selected path
@@ -42,3 +42,5 @@ pure_pursuit_node:
     # Speed capping 
     enable_speed_capping: true         # Enable or disable speed capping
     speed_capping_topic: "/speed_capping"  # Topic to receive speed capping commands
+    use_fused_odometry=: true           # Whether to use fused odometry for speed capping decisions
+    fused_odometry_topic: "/ego_racecar/odom"  # Topic for fused odometry data
